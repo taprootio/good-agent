@@ -6,7 +6,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseFrontMatter } from "./markdown.mjs";
@@ -157,6 +157,117 @@ function groupAlive(pgid) {
   try { process.kill(-pgid, 0); return true; } catch (error) { return /** @type {NodeJS.ErrnoException} */ (error).code === "EPERM"; }
 }
 
+/** @param {number} ms */
+function sleepSync(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+
+/**
+ * Whether a takeover guard can be reclaimed. A guard records the pid and host
+ * of its holder: while that pid is alive on this host it is never reclaimed,
+ * however old; a dead holder's guard is reclaimed at once; a guard that
+ * cannot be read or belongs to another host is reclaimed after 30 seconds.
+ * @param {string} guard
+ */
+function guardStale(guard) {
+  /** @type {{ pid?: unknown, host?: unknown } | null} */
+  let held = null;
+  try { held = JSON.parse(readFileSync(guard, "utf8")); } catch { held = null; }
+  if (held && held.host === hostname() && typeof held.pid === "number") return !pidAlive(held.pid);
+  try { return Date.now() - statSync(guard).mtimeMs > 30_000; } catch { return true; }
+}
+
+/**
+ * Take the lock directory's guard, the one mutual-exclusion point for
+ * publishing a lock's identity, rewriting it and taking an abandoned lock
+ * over. Returns its release, or null when another live process holds it.
+ * @param {string} guard
+ * @returns {(() => void) | null}
+ */
+function tryGuard(guard) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      writeFileSync(guard, JSON.stringify({ pid: process.pid, host: hostname() }), { flag: "wx" });
+      pauseForTest("GOOD_AGENT_TEST_PAUSE_HOLD", true);
+      return () => {
+        try {
+          const held = JSON.parse(readFileSync(guard, "utf8"));
+          if (held.pid === process.pid && held.host === hostname()) unlinkSync(guard);
+        } catch { /* already gone */ }
+      };
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") throw error;
+      if (!guardStale(guard)) return null;
+      reclaimGuard(guard);
+    }
+  }
+  return null;
+}
+
+/**
+ * Remove a guard that was judged dead (or old and unreadable) by renaming it
+ * to a private name, which is atomic: of several runners reclaiming the same
+ * guard exactly one rename succeeds (the others get ENOENT and loop back to
+ * re-evaluate), and a runner never deletes a fresh guard that was created
+ * after its judgement. If the file it moved turns out not to be stale after
+ * all (a fresh guard took the dead one's place between the check and the
+ * rename), it is linked straight back and left alone.
+ * @param {string} guard
+ */
+function reclaimGuard(guard) {
+  pauseForTest("GOOD_AGENT_TEST_PAUSE_GUARD_RECLAIM", false);
+  const mine = `${guard}.reclaim-${process.pid}-${Date.now()}`;
+  try { renameSync(guard, mine); } catch { return; }
+  if (guardStale(mine)) { try { unlinkSync(mine); } catch { /* gone */ } return; }
+  try { linkSync(mine, guard); } catch { /* a newer guard exists; the moved one's holder finds it is not its own at release */ }
+  try { unlinkSync(mine); } catch { /* gone */ }
+}
+
+/**
+ * Take the guard, waiting up to `maxMs` for a holder to finish (they hold it
+ * for microseconds). Null when it stays busy.
+ * @param {string} guard
+ * @param {number} maxMs
+ */
+function guardWait(guard, maxMs) {
+  const end = Date.now() + maxMs;
+  for (;;) {
+    const release = tryGuard(guard);
+    if (release) return release;
+    if (Date.now() >= end) return null;
+    sleepSync(5);
+  }
+}
+
+/** Hooks that already paused once in this process, for the `once` variants. */
+const paused = new Set();
+
+/**
+ * Test-only: with the named variable set to a directory (honoured only inside
+ * a `node --test` process), write <dir>/paused and block until <dir>/resume
+ * exists. With `once`, only the first call in the process pauses.
+ * @param {string} variable
+ * @param {boolean} once
+ */
+function pauseForTest(variable, once) {
+  const dir = process.env[variable];
+  if (!dir || !process.env.NODE_TEST_CONTEXT || (once && paused.has(variable))) return;
+  paused.add(variable);
+  writeFileSync(join(dir, "paused"), "");
+  for (let i = 0; i < 1500 && !existsSync(join(dir, "resume")); i += 1) sleepSync(20);
+}
+
+/**
+ * Test-only: with GOOD_AGENT_TEST_PAUSE_RECLAIM=<dir> (honoured only inside a
+ * `node --test` process), write <dir>/paused and block until <dir>/resume
+ * exists, after a waiter has judged a lock abandoned and before it tries to
+ * take it over.
+ */
+function pauseForReclaimTest() {
+  const dir = process.env.GOOD_AGENT_TEST_PAUSE_RECLAIM;
+  if (!dir || !process.env.NODE_TEST_CONTEXT) return;
+  writeFileSync(join(dir, "paused"), "");
+  for (let i = 0; i < 1500 && !existsSync(join(dir, "resume")); i += 1) sleepSync(20);
+}
+
 /**
  * Test-only: with GOOD_AGENT_TEST_PAUSE_LOCK=<dir> (honoured only inside a
  * `node --test` process), write <dir>/paused and block until <dir>/resume
@@ -228,8 +339,23 @@ export async function acquireLock(root, reviewer, options) {
       let dev = first.dev;
       pauseForLockTest();
       const started = new Date().toISOString();
-      writeSync(fd, `${JSON.stringify({ pid: process.pid, host: hostname(), started, token })}\n`);
-      closeSync(fd);
+      // Publishing the identity takes the guard, the same one a waiter holds
+      // while it re-checks and deletes an abandoned lock, so the two never
+      // interleave: a lock whose creator was paused is either deleted before the
+      // creator writes (and its setChild then fails) or published first (and the
+      // waiter then sees a live owner).
+      const publish = guardWait(guard, options.wait ? Math.max(0, Math.min(5000, options.deadline - Date.now())) : 200);
+      if (!publish) {
+        closeSync(fd);
+        try { const now = statSync(path); if (now.ino === first.ino && now.dev === first.dev) unlinkSync(path); } catch { /* not ours any more */ }
+        const message = `the ${reviewer} lock takeover guard ${guard} is held by another process; try again`;
+        if (!options.wait) throw new ReviewUsageError(message);
+        throw new Error(message);
+      }
+      try {
+        writeSync(fd, `${JSON.stringify({ pid: process.pid, host: hostname(), started, token })}\n`);
+        closeSync(fd);
+      } finally { publish(); }
       /** Whether the lock file at `path` is still this acquisition's. */
       const owns = () => {
         let rfd;
@@ -243,12 +369,16 @@ export async function acquireLock(root, reviewer, options) {
       return {
         release: () => { if (owns()) { try { unlinkSync(path); } catch { /* already gone */ } } },
         setChild: (pgid) => {
-          if (!owns()) throw new Error(`the ${reviewer} lock ${path} no longer belongs to this run (another process took it over); the reviewer was not started`);
-          const tmp = `${path}.tmp-${process.pid}`;
-          writeFileSync(tmp, `${JSON.stringify({ pid: process.pid, host: hostname(), started, pgid, token }, null, 2)}\n`);
-          const written = statSync(tmp);
-          renameSync(tmp, path);
-          ino = written.ino; dev = written.dev;
+          const rewrite = guardWait(guard, 5000);
+          if (!rewrite) throw new Error(`the ${reviewer} lock takeover guard ${guard} is held by another process; the reviewer was not started`);
+          try {
+            if (!owns()) throw new Error(`the ${reviewer} lock ${path} no longer belongs to this run (another process took it over); the reviewer was not started`);
+            const tmp = `${path}.tmp-${process.pid}`;
+            writeFileSync(tmp, `${JSON.stringify({ pid: process.pid, host: hostname(), started, pgid, token }, null, 2)}\n`);
+            const written = statSync(tmp);
+            renameSync(tmp, path);
+            ino = written.ino; dev = written.dev;
+          } finally { rewrite(); }
         },
       };
     } catch (error) {
@@ -256,18 +386,18 @@ export async function acquireLock(root, reviewer, options) {
     }
     const holder = readHolder();
     if (stale(holder)) {
-      let guarded = false;
-      try {
-        closeSync(openSync(guard, "wx"));
+      pauseForReclaimTest();
+      // The final check and the delete happen under the guard, so a creator
+      // that publishes its identity meanwhile is seen as a live owner here.
+      const takeover = tryGuard(guard);
+      const guarded = takeover === null;
+      if (takeover) {
         try {
           const again = readHolder();
-          if (stale(again) && again?.pid === holder?.pid && again?.started === holder?.started) unlinkSync(path);
-        } finally { try { unlinkSync(guard); } catch { /* gone */ } }
-      } catch (error) {
-        const code = /** @type {NodeJS.ErrnoException} */ (error).code;
-        if (code === "EEXIST") {
-          if (ageMs(guard) > 30_000) { try { unlinkSync(guard); } catch { /* raced */ } } else guarded = true;
-        } else if (code !== "ENOENT") throw error;
+          if (stale(again) && again?.pid === holder?.pid && again?.started === holder?.started) {
+            try { unlinkSync(path); } catch (error) { if (/** @type {NodeJS.ErrnoException} */ (error).code !== "ENOENT") throw error; }
+          }
+        } finally { takeover(); }
       }
       // Another process is taking the lock over: wait for it, or fail fast.
       if (guarded) await waitOrFail(`another process is taking over the ${reviewer} lock ${path}; wait for it or drop --no-wait`, `timed out waiting for another process to take over the ${reviewer} lock ${path}`, 50);

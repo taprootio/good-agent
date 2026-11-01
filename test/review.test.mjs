@@ -1072,3 +1072,131 @@ test("the task is resolved again once the lock is held, so a retargeted symlink 
     assert.equal(m["GA0003-story-r1"].task_digest_after, expected);
   } finally { r.cleanup(); }
 });
+
+test("a waiter that judged a lock abandoned cannot delete it once its creator has published and started reviewing", async () => {
+  const r = repo();
+  const reviews = scratch();
+  const pauseA = scratch("good-agent-pause-a-");
+  const pauseB = scratch("good-agent-pause-b-");
+  const started = join(reviews, "started.txt");
+  try {
+    const args = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    const base = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_STARTED_FILE: started, NODE_TEST_CONTEXT: "child-v8" };
+    const a = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, GOOD_AGENT_TEST_PAUSE_LOCK: pauseA, FAKE_SLEEP: "3" } });
+    let aErr = "";
+    a.stderr.on("data", (d) => { aErr += d; });
+    await waitFor(() => existsSync(join(pauseA, "paused")));
+    const lock = join(reviews, "codex.lock");
+    assert.equal(readFileSync(lock, "utf8"), "", "A's lock is still empty");
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    // B judges the old empty lock abandoned, then stops just before it would take it over.
+    const b = spawn(process.execPath, [BIN, "review", ...args, "--no-wait"], { cwd: r.root, env: { ...base, GOOD_AGENT_TEST_PAUSE_RECLAIM: pauseB } });
+    let bErr = "";
+    b.stderr.on("data", (d) => { bErr += d; });
+    await waitFor(() => existsSync(join(pauseB, "paused")));
+    // A resumes first: it publishes its identity and starts its reviewer.
+    writeFileSync(join(pauseA, "resume"), "");
+    await waitFor(() => existsSync(started) && lockPgid(reviews, "codex") !== null);
+    const aPgid = lockPgid(reviews, "codex");
+    // Now B resumes and re-checks under the guard: it must see a live owner.
+    writeFileSync(join(pauseB, "resume"), "");
+    const bStatus = await new Promise((done) => b.on("close", done));
+    assert.equal(bStatus, 2, bErr);
+    assert.match(bErr, /another codex review is running/);
+    assert.equal(lockPgid(reviews, "codex"), aPgid, "A's lock is intact");
+    const aStatus = await new Promise((done) => a.on("close", done));
+    assert.equal(aStatus, 0, aErr);
+    assert.equal(readFileSync(started, "utf8").trim().split("\n").length, 1, "only A's reviewer ever started");
+    assert.ok(!existsSync(lock) && !existsSync(`${lock}.takeover`), "lock and guard released");
+  } finally { r.cleanup(); }
+});
+
+test("a takeover guard left by a dead process is reclaimed at once; one held by a live process is not, however old", () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const lock = join(reviews, "codex.lock");
+    const guard = `${lock}.takeover`;
+    const args = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    // Dead holder: a fresh guard is still reclaimed, and so is the abandoned lock behind it.
+    writeFileSync(lock, JSON.stringify({ pid: 999999, host: hostname(), started: "then" }));
+    writeFileSync(guard, JSON.stringify({ pid: 999998, host: hostname() }));
+    let res = review([...args, "--no-wait"], { root: r.root, reviews });
+    assert.equal(res.status, 0, res.stderr);
+    assert.ok(!existsSync(guard) && !existsSync(lock));
+    // Live holder (this test process), 10 minutes old: never reclaimed by age.
+    writeFileSync(lock, JSON.stringify({ pid: 999999, host: hostname(), started: "then" }));
+    writeFileSync(guard, JSON.stringify({ pid: process.pid, host: hostname() }));
+    const old = new Date(Date.now() - 600_000);
+    utimesSync(guard, old, old);
+    res = review([...args, "--no-wait"], { root: r.root, reviews });
+    assert.equal(res.status, 2, res.stderr); assert.match(res.stderr, /taking over the codex lock/);
+    res = review([...args, "--timeout-minutes", "0.02"], { root: r.root, reviews });
+    assert.equal(res.status, 3, res.stderr);
+    assert.ok(existsSync(guard), "the live holder's guard is untouched");
+    // With no lock at all, a live guard still blocks publishing: the creator gives up instead of writing.
+    rmSync(lock);
+    rmSync(join(reviews, "record.txt"), { force: true });
+    res = review([...args, "--no-wait"], { root: r.root, reviews });
+    assert.equal(res.status, 2, res.stderr); assert.match(res.stderr, /takeover guard .* is held by another process/);
+    assert.ok(!existsSync(lock), "the creator removed its empty lock");
+    assert.ok(!res.record.includes("ARGV:exec"));
+    // An unreadable guard is reclaimed only after 30 seconds.
+    writeFileSync(guard, "");
+    res = review([...args, "--no-wait"], { root: r.root, reviews });
+    assert.equal(res.status, 2, res.stderr);
+    utimesSync(guard, old, old);
+    res = review([...args, "--no-wait"], { root: r.root, reviews });
+    assert.equal(res.status, 0, res.stderr);
+  } finally { r.cleanup(); }
+});
+
+test("two runners reclaiming one dead guard: only one rename wins, a fresh guard is never deleted, and the reviews run one at a time", async () => {
+  const r = repo();
+  const reviews = scratch();
+  const pauseB = scratch("good-agent-pause-b-");
+  const pauseC = scratch("good-agent-pause-c-");
+  const hold = scratch("good-agent-hold-");
+  const started = join(reviews, "started.txt");
+  try {
+    const lock = join(reviews, "codex.lock");
+    const guard = `${lock}.takeover`;
+    writeFileSync(lock, JSON.stringify({ pid: 999999, host: hostname(), started: "then" }));
+    writeFileSync(guard, JSON.stringify({ pid: 999998, host: hostname() }));
+    const args = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    const base = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_STARTED_FILE: started, NODE_TEST_CONTEXT: "child-v8" };
+    /** @param {Record<string, string>} extra */
+    const run = (extra) => {
+      const child = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, ...extra } });
+      let stderr = "";
+      child.stderr.on("data", (d) => { stderr += d; });
+      return { child, err: () => stderr, done: new Promise((resolveDone) => child.on("close", resolveDone)) };
+    };
+    // Both judge the same guard dead and stop just before they would remove it.
+    const b = run({ GOOD_AGENT_TEST_PAUSE_GUARD_RECLAIM: pauseB, GOOD_AGENT_TEST_PAUSE_HOLD: hold, FAKE_SLEEP: "2" });
+    const c = run({ GOOD_AGENT_TEST_PAUSE_GUARD_RECLAIM: pauseC });
+    await waitFor(() => existsSync(join(pauseB, "paused")) && existsSync(join(pauseC, "paused")), 8000);
+    // B goes first: it reclaims the dead guard, creates its own fresh one and stops while holding it.
+    writeFileSync(join(pauseB, "resume"), "");
+    await waitFor(() => existsSync(join(hold, "paused")));
+    const bGuard = JSON.parse(readFileSync(guard, "utf8"));
+    assert.equal(bGuard.pid, b.child.pid, "the guard is B's fresh one");
+    // C now acts on its stale judgement: its rename moves B's live guard, which it must put back untouched.
+    writeFileSync(join(pauseC, "resume"), "");
+    await new Promise((done) => setTimeout(done, 1500));
+    assert.deepEqual(JSON.parse(readFileSync(guard, "utf8")), bGuard, "C did not delete or replace B's guard");
+    assert.equal(c.child.exitCode, null, "C is waiting, not running");
+    assert.ok(!existsSync(started), "nobody has started a reviewer while B holds the guard");
+    // Let B go on; C then follows B, one lock at a time.
+    writeFileSync(join(hold, "resume"), "");
+    await waitFor(() => existsSync(started));
+    assert.equal(readFileSync(started, "utf8").trim().split("\n").length, 1, "only B started so far");
+    assert.equal(c.child.exitCode, null, "C is still waiting for B's lock");
+    const [bStatus, cStatus] = await Promise.all([b.done, c.done]);
+    assert.equal(bStatus, 0, b.err()); assert.equal(cStatus, 0, c.err());
+    assert.equal(readFileSync(started, "utf8").trim().split("\n").length, 2, "both reviews ran, one after the other");
+    assert.ok(!existsSync(lock) && !existsSync(guard), "lock and guard released");
+    assert.deepEqual(readdirSync(reviews).filter((n) => n.includes(".reclaim-")), [], "no renamed guard files left behind");
+  } finally { r.cleanup(); }
+});

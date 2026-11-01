@@ -80,8 +80,25 @@ the message names the log).
    live holder, except that `--no-wait` exits 2 naming it at once and the
    wait never outlasts the deadline. The same holds for a takeover guard
    another process holds. A lock held on another host is never taken over.
-   A takeover goes through an exclusively created guard file and re-reads the lock first, so two
-   waiters cannot delete each other's fresh lock. Waiting counts against the
+   One guard file (`<reviewer>.lock.takeover`, created exclusively, recording
+   its holder's pid and host) serializes everything that changes a lock's
+   identity: the creator takes it before writing its identity into a freshly
+   created lock, `setChild` takes it before rewriting the lock with the
+   group id, and a waiter takes it, re-reads the lock and re-evaluates
+   staleness (an identity with a live holder is not stale) immediately before
+   deleting it. A creator that was paused with an empty lock therefore either
+   finds it deleted (see below) or publishes first, and the waiter then sees
+   a live owner and waits (or exits 2 with `--no-wait`). A guard is held for
+   microseconds; it is reclaimed at once when its recorded holder is dead on
+   this host, never by age while that holder is alive, and after 30 seconds
+   when it is unreadable or belongs to another host. Reclaiming is an atomic
+   rename to a private name (`.reclaim-<pid>-<ms>`), not a read followed by
+   an unlink: of several runners reclaiming the same guard only one rename
+   succeeds (the others loop back and re-evaluate), and a runner never
+   deletes a fresh guard created after its judgement. If what it moved is
+   not stale after all, it is linked straight back and left alone. A creator that cannot
+   get the guard (5 seconds, or 200 ms with `--no-wait`) removes its empty
+   lock and gives up. Waiting counts against the
    timeout; `--no-wait` exits 2 instead. Each acquisition has an identity, a
    random token in the lock's content plus the file's inode. A runner paused
    between creating the lock and writing it can be judged abandoned and
