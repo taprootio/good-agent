@@ -17,28 +17,30 @@ First release.
 2026-11-01):
 
 - `canonical/detect` (error): a canonical instruction file exists or is
-  configured. Codex, Claude Code and Copilot docs.
+  configured. Sources: [Codex AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md); [Claude Code memory](https://code.claude.com/docs/en/memory);
+  [Copilot repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions).
 - `canonical/name` (warn): it is named `AGENTS.md`, the one name every tool
-  reads. Codex AGENTS.md guide; Copilot repository instructions; Claude Code
-  memory.
+  reads. Sources: [Codex AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md); [Copilot repository
+  instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions); [Claude Code memory](https://code.claude.com/docs/en/memory).
 - `codex/size-budget` (error): every root-to-directory chain of `AGENTS.md`
-  files fits Codex's 32 KiB combined `project_doc_max_bytes` budget. Codex
-  AGENTS.md guide and `codex-rs/core/src/agents_md.rs`.
+  files fits Codex's 32 KiB combined `project_doc_max_bytes` budget. Sources:
+  [Codex AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md); [`agents_md.rs`](https://github.com/openai/codex/blob/main/codex-rs/core/src/agents_md.rs).
 - `claude/import-canonical` (error): `CLAUDE.md` imports the canonical file
   with `@path`, not a link or a sentence. With no `CLAUDE.md` and an
   `AGENTS.md` canonical file it reports an info finding instead (Claude Code
-  2.1.277 and later read `AGENTS.md` directly). Claude Code memory.
+  2.1.277 and later read `AGENTS.md` directly). Source: [Claude Code memory](https://code.claude.com/docs/en/memory).
 - `claude/import-depth` (warn): no import chain deeper than four hops.
-  Claude Code memory.
+  Source: [Claude Code memory](https://code.claude.com/docs/en/memory).
 - `claude/size` (warn): every file Claude Code loads at launch is under 200
-  lines; an info line when only the total is over. Claude Code memory and
-  costs.
-- `links/broken` (error): relative links and `@` imports resolve. Claude
-  Code memory; VS Code custom instructions.
+  lines; an info line when only the total is over. Sources: [Claude Code
+  memory](https://code.claude.com/docs/en/memory); [Claude Code costs](https://code.claude.com/docs/en/costs).
+- `links/broken` (error): relative links and `@` imports resolve. Sources:
+  [Claude Code memory](https://code.claude.com/docs/en/memory); [VS Code custom
+  instructions](https://code.visualstudio.com/docs/copilot/customization/custom-instructions).
 - `copilot/applyto` (error): path-specific instruction files have valid
-  `applyTo` front matter. Copilot repository instructions.
+  `applyTo` front matter. Source: [Copilot repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions).
 - `dry/copied-canonical` (error): no tool file is a copy of the canonical
-  file. Claude Code memory; Codex AGENTS.md guide.
+  file. Sources: [Claude Code memory](https://code.claude.com/docs/en/memory); [Codex AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md).
 
 ### The skills
 

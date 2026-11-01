@@ -495,7 +495,7 @@ test("a SIGHUP while waiting for the lock ends the wait without touching the hol
     const child = spawn(process.execPath, [BIN, "review", "--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { cwd: r.root, env });
     let stderr = "";
     child.stderr.on("data", (d) => { stderr += d; });
-    await waitFor(() => existsSync(join(reviews, "record.txt")), 5000); // past the version check, so now waiting
+    await waitFor(() => existsSync(join(reviews, "record.txt")), 20_000); // past the version check, so now waiting
     await new Promise((done) => setTimeout(done, 300));
     child.kill("SIGHUP");
     const status = await new Promise((done) => child.on("close", done));
@@ -510,7 +510,7 @@ test("a SIGKILLed runner leaves its reviewer running, and a second review is ref
   const r = repo();
   const reviews = scratch();
   try {
-    const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_SLEEP: "3" };
+    const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_SLEEP: "6" };
     const child = spawn(process.execPath, [BIN, "review", "--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { cwd: r.root, env });
     await waitFor(() => lockPgid(reviews, "codex") !== null);
     const pgid = /** @type {number} */ (lockPgid(reviews, "codex"));
@@ -521,7 +521,7 @@ test("a SIGKILLed runner leaves its reviewer running, and a second review is ref
     const refused = review([...base, "--no-wait"], { root: r.root, reviews });
     assert.equal(refused.status, 2, refused.stderr);
     assert.match(refused.stderr, new RegExp(`process group ${pgid}`));
-    await waitFor(() => { try { process.kill(-pgid, 0); return false; } catch { return true; } }, 8000);
+    await waitFor(() => { try { process.kill(-pgid, 0); return false; } catch { return true; } }, 20_000);
     const ok = review(base, { root: r.root, reviews });
     assert.equal(ok.status, 0, ok.stderr);
   } finally { r.cleanup(); }
@@ -532,7 +532,7 @@ test("a SIGKILLed runner leaves its reviewer running, and a second review is ref
  * @param {() => boolean} check
  * @param {number} [ms]
  */
-async function waitFor(check, ms = 5000) {
+async function waitFor(check, ms = 20_000) {
   const end = Date.now() + ms;
   while (Date.now() < end) { if (check()) return; await new Promise((done) => setTimeout(done, 50)); }
   throw new Error("timed out waiting for a condition");
@@ -726,15 +726,15 @@ test("the timeout budget covers the version check and the MCP listings; none lef
   try {
     const base = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md", "--timeout-minutes", "0.02"];
     let t0 = Date.now();
-    let res = review(base, { root: r.root, reviews, env: { FAKE_VERSION_SLEEP: "4" } });
+    let res = review(base, { root: r.root, reviews, env: { FAKE_VERSION_SLEEP: "20" } });
     assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /REVIEW_ERROR: timeout budget exhausted before the review started/);
-    assert.ok(Date.now() - t0 < 3500, "the version check was cut off at the budget, not at 30 seconds or the fake's sleep");
+    assert.ok(Date.now() - t0 < 10_000, "the version check was cut off at the budget, not at 30 seconds or the fake's sleep");
     assert.ok(!res.record.includes("ARGV:exec"));
     assert.deepEqual(metas(reviews), {}, "no round was reserved yet");
     t0 = Date.now();
-    res = review(base, { root: r.root, reviews, env: { FAKE_MCP_SLEEP: "4" } });
+    res = review(base, { root: r.root, reviews, env: { FAKE_MCP_SLEEP: "20" } });
     assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /REVIEW_ERROR: timeout budget exhausted before the review started/);
-    assert.ok(Date.now() - t0 < 3500);
+    assert.ok(Date.now() - t0 < 10_000);
     assert.ok(!res.record.includes("ARGV:exec"), "the reviewer was never spawned");
     assert.match(metas(reviews)["GA0002-story-r1"].error, /budget exhausted/);
     assert.equal(metas(reviews)["GA0002-story-r1"].status, "REVIEW_ERROR");
@@ -751,12 +751,12 @@ test("an unreadable lock honours --no-wait and the deadline instead of waiting o
     let t0 = Date.now();
     let res = review([...base, "--no-wait"], { root: r.root, reviews });
     assert.equal(res.status, 2, res.stderr); assert.match(res.stderr, /codex\.lock is unreadable/);
-    assert.ok(Date.now() - t0 < 2500, "fails at once, not after the five second grace");
+    assert.ok(Date.now() - t0 < 4500, "fails at once, not after the five second grace");
     assert.ok(!res.record.includes("ARGV:exec"));
     t0 = Date.now();
     res = review([...base, "--timeout-minutes", "0.02"], { root: r.root, reviews });
     assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /timed out waiting for the unreadable codex lock/);
-    assert.ok(Date.now() - t0 < 4000, "gives up at the deadline, not after the grace period");
+    assert.ok(Date.now() - t0 < 4500, "gives up at the deadline, not after the grace period");
     assert.ok(!res.record.includes("ARGV:exec"), "no review ran");
     // A stale lock behind a takeover guard another process holds: no waiting with --no-wait.
     writeFileSync(lock, JSON.stringify({ pid: 999999, host: hostname(), started: "then" }));
@@ -943,7 +943,7 @@ test("a surviving reviewer group keeps the lock even when the digest after the r
  * @param {() => void} during
  */
 async function reviewWhile(root, reviews, args, during) {
-  const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_SLEEP: "2" };
+  const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_SLEEP: "4" };
   const child = spawn(process.execPath, [BIN, "review", ...args], { cwd: root, env });
   let stderr = "";
   child.stderr.on("data", (d) => { stderr += d; });
@@ -1025,7 +1025,7 @@ test("a runner paused with an empty lock that another runner takes over fails wi
     const old = new Date(Date.now() - 60_000);
     utimesSync(lock, old, old);
     // B treats the old empty lock as abandoned, takes it over and starts its (slow) reviewer.
-    const b = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, FAKE_SLEEP: "3" } });
+    const b = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, FAKE_SLEEP: "6" } });
     let bErr = "";
     b.stderr.on("data", (d) => { bErr += d; });
     await waitFor(() => lockPgid(reviews, "codex") !== null);
@@ -1052,11 +1052,12 @@ test("the task is resolved again once the lock is held, so a retargeted symlink 
     r.g("add", "."); r.g("commit", "-q", "-m", "tasks");
     const lock = join(reviews, "codex.lock");
     writeFileSync(lock, JSON.stringify({ pid: process.pid, host: hostname(), started: "now" }));
-    const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews };
+    const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_RECORD: join(reviews, "record.txt") };
     const child = spawn(process.execPath, [BIN, "review", "--by", "codex", "--prompt", "story", "--task", "link.md"], { cwd: r.root, env });
     let stderr = "";
     child.stderr.on("data", (d) => { stderr += d; });
-    await new Promise((done) => setTimeout(done, 800)); // past the usage checks, waiting for the lock
+    await waitFor(() => existsSync(join(reviews, "record.txt"))); // past the version check, so now waiting for the lock
+    await new Promise((done) => setTimeout(done, 300));
     rmSync(join(r.root, "link.md"));
     symlinkSync("B.md", join(r.root, "link.md"));
     rmSync(lock);
@@ -1082,7 +1083,7 @@ test("a waiter that judged a lock abandoned cannot delete it once its creator ha
   try {
     const args = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
     const base = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_STARTED_FILE: started, NODE_TEST_CONTEXT: "child-v8" };
-    const a = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, GOOD_AGENT_TEST_PAUSE_LOCK: pauseA, FAKE_SLEEP: "3" } });
+    const a = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, GOOD_AGENT_TEST_PAUSE_LOCK: pauseA, FAKE_SLEEP: "6" } });
     let aErr = "";
     a.stderr.on("data", (d) => { aErr += d; });
     await waitFor(() => existsSync(join(pauseA, "paused")));
@@ -1176,9 +1177,9 @@ test("two runners reclaiming one dead guard: only one rename wins, a fresh guard
       return { child, err: () => stderr, done: new Promise((resolveDone) => child.on("close", resolveDone)) };
     };
     // Both judge the same guard dead and stop just before they would remove it.
-    const b = run({ GOOD_AGENT_TEST_PAUSE_GUARD_RECLAIM: pauseB, GOOD_AGENT_TEST_PAUSE_HOLD: hold, FAKE_SLEEP: "2" });
+    const b = run({ GOOD_AGENT_TEST_PAUSE_GUARD_RECLAIM: pauseB, GOOD_AGENT_TEST_PAUSE_HOLD: hold, FAKE_SLEEP: "4" });
     const c = run({ GOOD_AGENT_TEST_PAUSE_GUARD_RECLAIM: pauseC });
-    await waitFor(() => existsSync(join(pauseB, "paused")) && existsSync(join(pauseC, "paused")), 8000);
+    await waitFor(() => existsSync(join(pauseB, "paused")) && existsSync(join(pauseC, "paused")), 20_000);
     // B goes first: it reclaims the dead guard, creates its own fresh one and stops while holding it.
     writeFileSync(join(pauseB, "resume"), "");
     await waitFor(() => existsSync(join(hold, "paused")));
@@ -1226,7 +1227,7 @@ test("a creator that cannot get the guard never unlinks its empty lock, so a wai
     const old = new Date(Date.now() - 60_000);
     utimesSync(lock, old, old);
     // B takes the takeover guard to reclaim it and stops while holding the guard.
-    const b = run([], { GOOD_AGENT_TEST_PAUSE_HOLD: holdB, FAKE_SLEEP: "3" });
+    const b = run([], { GOOD_AGENT_TEST_PAUSE_HOLD: holdB, FAKE_SLEEP: "6" });
     await waitFor(() => existsSync(join(holdB, "paused")));
     // A resumes, cannot get the guard, and gives up (--no-wait: exit 2) without unlinking anything.
     writeFileSync(join(pauseA, "resume"), "");

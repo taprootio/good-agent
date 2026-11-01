@@ -93,24 +93,26 @@ jobs:
       - run: npm install -g npm@latest
       - run: npm ci
       # The four gates from AGENTS.md.
-      - run: npx --yes @taprootio/trellis check
+      - run: npx --yes @taprootio/trellis@0.2.0 check
       - run: npm test
       - run: npm run typecheck
       - run: node scripts/good-agent.mjs check
       - name: Publish to npm
         if: needs.check.outputs.publish == 'true'
-        run: npm publish --provenance --access public --tag "${{ needs.check.outputs.npmtag }}"
-      - name: Tag and create the GitHub Release
+        env:
+          NPM_TAG: ${{ needs.check.outputs.npmtag }}
+        run: npm publish --provenance --access public --tag "$NPM_TAG"
+      - name: Create the tag and GitHub Release
         if: needs.check.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          version="${{ needs.check.outputs.version }}"
-          git tag "v$version"
-          git push origin "v$version"
-          case "$version" in
-            *-*) gh release create "v$version" --title "v$version" --notes "See CHANGELOG.md." --prerelease ;;
-            *) gh release create "v$version" --title "v$version" --notes "See CHANGELOG.md." ;;
+          # gh release create makes the v<version> tag at the pushed commit, so
+          # a tag that exists without a Release never blocks the next run.
+          case "$VERSION" in
+            *-*) gh release create "v$VERSION" --title "v$VERSION" --notes "See CHANGELOG.md." --target "$GITHUB_SHA" --prerelease ;;
+            *) gh release create "v$VERSION" --title "v$VERSION" --notes "See CHANGELOG.md." --target "$GITHUB_SHA" ;;
           esac
 
   # The @taprootio/good-agent alias. Disabled until the main 0.1.0 release,

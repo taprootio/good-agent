@@ -68,16 +68,47 @@ test("npm pack lists the shipped files and nothing from alias, placeholder, test
 
 test("release.yml keeps the 0.0.0 guard, the four gates, and a disabled alias job", () => {
   const yml = readText(".github/workflows/release.yml");
-  assert.ok(yml.includes('if [ "$version" = "0.0.0" ]; then'), "0.0.0 guard");
-  const guard = yml.slice(yml.indexOf('if [ "$version" = "0.0.0" ]'));
-  assert.ok(guard.indexOf('echo "publish=false"') < guard.indexOf("exit 0"));
-  assert.ok(guard.indexOf('echo "release=false"') < guard.indexOf("exit 0"));
-  for (const gate of ["npx --yes @taprootio/trellis check", "npm test", "npm run typecheck", "node scripts/good-agent.mjs check"]) {
+  // The guard is the if ... fi block that starts at the 0.0.0 comparison; slice only that block.
+  const start = yml.indexOf('if [ "$version" = "0.0.0" ]; then\n');
+  assert.ok(start >= 0, "0.0.0 guard");
+  const end = yml.indexOf("\n          fi\n", start);
+  assert.ok(end > start, "the guard block closes with fi");
+  const guard = yml.slice(start, end);
+  const publish = guard.indexOf('echo "publish=false" >> "$GITHUB_OUTPUT"');
+  const release = guard.indexOf('echo "release=false" >> "$GITHUB_OUTPUT"');
+  const exit0 = guard.indexOf("exit 0");
+  assert.ok(publish >= 0 && release >= 0 && exit0 >= 0, "the guard writes both outputs and exits");
+  assert.ok(publish < release && release < exit0, "outputs are written before the exit");
+  // The guard comes before anything that asks the registry or GitHub.
+  assert.ok(start < yml.indexOf("npm view"));
+  assert.ok(start < yml.indexOf("gh release view"));
+  for (const gate of ["npx --yes @taprootio/trellis@0.2.0 check", "npm test", "npm run typecheck", "node scripts/good-agent.mjs check"]) {
     assert.ok(yml.includes(`- run: ${gate}\n`), gate);
   }
   assert.match(yml, /^  alias:\n(?:    .*\n)*?    if: false\n/m);
   assert.match(yml, /# .*enable/i);
   assert.ok(!yml.includes("\t"), "no tabs");
+});
+
+test("release.yml publish job: OIDC, provenance, dist-tag, trigger expression, release target", () => {
+  const yml = readText(".github/workflows/release.yml");
+  const jobStart = yml.indexOf("\n  publish:\n");
+  const jobEnd = yml.indexOf("\n  # The @taprootio/good-agent alias.");
+  assert.ok(jobStart >= 0 && jobEnd > jobStart);
+  const job = yml.slice(jobStart, jobEnd);
+  assert.ok(job.includes("    if: needs.check.outputs.publish == 'true' || needs.check.outputs.release == 'true'\n"));
+  assert.match(job, /^    permissions:\n      contents: write.*\n      id-token: write.*\n/m);
+  assert.ok(job.includes("- run: npm install -g npm@latest\n"));
+  assert.ok(job.includes('npm publish --provenance --access public --tag "$NPM_TAG"'));
+  assert.ok(job.includes("NPM_TAG: ${{ needs.check.outputs.npmtag }}"));
+  assert.ok(job.includes("VERSION: ${{ needs.check.outputs.version }}"));
+  assert.ok(yml.includes('*-*) echo "npmtag=next" >> "$GITHUB_OUTPUT" ;;'));
+  assert.ok(yml.includes('*) echo "npmtag=latest" >> "$GITHUB_OUTPUT" ;;'));
+  const creates = job.split("\n").filter((l) => !l.trim().startsWith("#") && l.includes("gh release create"));
+  assert.equal(creates.length, 2);
+  for (const l of creates) assert.ok(l.includes('--target "$GITHUB_SHA"'), l);
+  assert.ok(creates.some((l) => l.includes("--prerelease")));
+  assert.ok(!/git tag|git push/.test(job), "gh release create makes the tag, so an existing tag never blocks the Release");
 });
 
 test("release.yml: every expression names an existing output, job or step", () => {
@@ -96,6 +127,19 @@ test("release.yml: every expression names an existing output, job or step", () =
   for (const m of refs.matchAll(/\$\{\{\s*([^}]*?)\s*\}\}/g)) {
     assert.match(m[1], /^(steps\.state\.outputs\.\w+|needs\.check\.outputs\.\w+|github\.token)$/, m[0]);
   }
+  // Expressions reach shell code through env:, never inline in a run: step.
+  /** @type {string[]} */
+  const runBlocks = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^( *)(?:- )?run: (.*)$/);
+    if (!m) continue;
+    const indent = m[1].length + (lines[i].trimStart().startsWith("- ") ? 2 : 0);
+    let block = m[2];
+    while (i + 1 < lines.length && (lines[i + 1].trim() === "" || lines[i + 1].length - lines[i + 1].trimStart().length > indent)) block += `\n${lines[++i]}`;
+    runBlocks.push(block);
+  }
+  assert.ok(runBlocks.length > 5);
+  for (const block of runBlocks) assert.ok(!/\$\{\{\s*needs\./.test(block), `inline needs reference in a run step: ${block}`);
   // Brace and indentation sanity: two-space steps, jobs at depth one.
   for (const job of ["check", "publish", "alias"]) assert.match(yml, new RegExp(`^  ${job}:$`, "m"));
   for (const l of lines) assert.equal((l.length - l.trimStart().length) % 2, 0, `even indentation: ${l}`);
@@ -103,10 +147,17 @@ test("release.yml: every expression names an existing output, job or step", () =
 
 test("CHANGELOG.md has the unreleased 0.1.0 entry naming all nine rules", () => {
   const log = readText("CHANGELOG.md");
-  assert.match(log, /^## 0\.1\.0 \(unreleased\)$/m);
+  assert.match(log, /^## 0\.1\.0\b/m);
   const ids = [...readText("src/rules/index.mjs").matchAll(/^import \w+ from "\.\/(\w+\/[\w-]+)\.mjs";$/gm)].map((m) => m[1]).filter((id) => id !== "types");
   assert.equal(ids.length, 9);
   for (const id of ids) assert.ok(log.includes(`\`${id}\``), id);
+});
+
+test("CHANGELOG.md links every rule's first documentation source", async () => {
+  const log = readText("CHANGELOG.md");
+  const { RULES } = await import("../src/rules/index.mjs");
+  assert.equal(RULES.length, 9);
+  for (const rule of RULES) assert.ok(log.includes(`](${rule.docs[0]})`), `${rule.id}: ${rule.docs[0]}`);
 });
 
 test("the alias bin runs end to end from local tarballs (offline)", () => {
