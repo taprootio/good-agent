@@ -1,0 +1,145 @@
+name: Release
+
+# Publishes good-agent to public npm when package.json's version on main is
+# not on the registry yet. The version bump, reviewed in its PR into protected
+# main, is the release act; there is no separate tag step. Copied from
+# @taprootio/trellis with two changes: version 0.0.0 never publishes (the
+# workflow can merge before the first release), and the gates are this
+# repository's four from AGENTS.md.
+#
+# The npm publish and the git tag + GitHub Release are gated independently by
+# the `check` job, so the model is idempotent and self-healing: unrelated
+# pushes are no-ops, and if either half is missing the next push completes it.
+#
+# Auth: npm trusted publishing (OIDC), no long-lived token. The publish job has
+# id-token: write and runs npm >= 11.5.1, so `npm publish` mints a short-lived
+# token from the trusted publisher configured for taprootio/good-agent and
+# this workflow file. Provenance is automatic and requires a public repository.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: check version
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.state.outputs.publish }}
+      release: ${{ steps.state.outputs.release }}
+      version: ${{ steps.state.outputs.version }}
+      npmtag: ${{ steps.state.outputs.npmtag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Decide what still needs releasing
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-*) echo "npmtag=next" >> "$GITHUB_OUTPUT" ;;
+            *) echo "npmtag=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
+          # 0.0.0 is the pre-release placeholder version: never publish it.
+          if [ "$version" = "0.0.0" ]; then
+            echo "version 0.0.0 is never released."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          published="$(npm view "$name@$version" version 2>/dev/null || true)"
+          if [ "$published" = "$version" ]; then
+            echo "$name@$version already on npm."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$name@$version not on npm; will publish."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version Release already exists."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$version Release missing; will create."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    name: publish
+    needs: check
+    if: needs.check.outputs.publish == 'true' || needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the v<version> tag + GitHub Release
+      id-token: write # npm trusted publishing (OIDC) + provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
+      - run: npm ci
+      # The four gates from AGENTS.md.
+      - run: npx --yes @taprootio/trellis check
+      - run: npm test
+      - run: npm run typecheck
+      - run: node scripts/good-agent.mjs check
+      - name: Publish to npm
+        if: needs.check.outputs.publish == 'true'
+        run: npm publish --provenance --access public --tag "${{ needs.check.outputs.npmtag }}"
+      - name: Tag and create the GitHub Release
+        if: needs.check.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ needs.check.outputs.version }}"
+          git tag "v$version"
+          git push origin "v$version"
+          case "$version" in
+            *-*) gh release create "v$version" --title "v$version" --notes "See CHANGELOG.md." --prerelease ;;
+            *) gh release create "v$version" --title "v$version" --notes "See CHANGELOG.md." ;;
+          esac
+
+  # The @taprootio/good-agent alias. Disabled until the main 0.1.0 release,
+  # the owner's manual first publish of the alias, and the alias's trusted
+  # publisher exist (GA0005). To enable it, replace `if: false` with
+  #   if: ${{ !cancelled() && needs.check.result == 'success' && needs.check.outputs.version != '0.0.0' && needs.publish.result != 'failure' }}
+  # so it runs after a main release or after an unrelated push, and so a
+  # bump of alias/package.json alone is published; the step below is the
+  # idempotency guard. Keep alias/package.json's dependency range in step
+  # with major bumps (>=0.1.0 <1 becomes ^1 at 1.0).
+  alias:
+    name: publish alias
+    needs: [check, publish]
+    if: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) + provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
+      - name: Publish the alias when its version is not on the registry
+        working-directory: alias
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          published="$(npm view "@taprootio/good-agent@$version" version 2>/dev/null || true)"
+          if [ "$published" = "$version" ]; then echo "alias $version already on npm."; exit 0; fi
+          npm publish --provenance --access public

@@ -30,6 +30,10 @@ exist. Keeping AI tool instructions DRY is just as important as keeping code DRY
 
 Zero runtime dependencies. Node 22 or later. MIT.
 
+`@taprootio/good-agent` is an alias of the same package: it installs the same
+`good-agent` command, so `npx @taprootio/good-agent check` and
+`npx good-agent check` run identical code.
+
 ## Five-minute setup
 
 ```bash
