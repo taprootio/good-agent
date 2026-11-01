@@ -124,7 +124,7 @@ test("a fence inside a blockquote hides its content; a plain quoted link is kept
 });
 
 test("a quoted fence closes only at the same quote depth", () => {
-  const src = "> ```\n> [x](a.md)\n```\n> [y](b.md)\n> ```\n\n[z](c.md)\n";
+  const src = "> ```\n> [x](a.md)\n> > ```\n> [y](b.md)\n> ```\n\n[z](c.md)\n";
   assert.deepEqual(markdownLinks(src).map((l) => l.target), ["c.md"]);
 });
 
@@ -151,4 +151,49 @@ test("a CRLF or whitespace-only blank line is a paragraph break for link labels"
   assert.deepEqual(markdownLinks("[a\r\n\r\nb](c.md)\n"), []);
   assert.deepEqual(markdownLinks("[a\n  \nb](c.md)\n"), []);
   assert.deepEqual(markdownLinks("[a\r\nb](c.md)\n").map((l) => l.target), ["c.md"]);
+});
+
+test("prose with a pipe is not a table; a header above a delimiter row is, with or without outer pipes", () => {
+  assert.deepEqual(markdownLinks("Use `a | [x](missing.md)` here.\n"), []);
+  assert.deepEqual(markdownLinks("| a ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(markdownLinks("a | b\n--- | ---\n`x` | [y](t.md)\n").map((l) => l.target), ["t.md"]);
+});
+
+test("a fence in a blockquote ends where the blockquote ends", () => {
+  const src = "> ~~~\n> example\n\n[x](missing.md)\n@AGENTS.md\n";
+  assert.deepEqual(markdownLinks(src).map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(claudeImports(src).map((i) => i.target), ["AGENTS.md"]);
+  assert.deepEqual(markdownLinks("> ~~~\n> [x](m.md)\n> ~~~\n> [y](n.md)\n").map((l) => l.target), ["n.md"]);
+  assert.deepEqual(markdownLinks("> ~~~\n> [x](m.md)\n[y](n.md)\n").map((l) => l.target), ["n.md"]);
+});
+
+test("front matter: an escaped closing quote does not terminate; a doubled single quote is literal", () => {
+  const bad = parseFrontMatter('---\napplyTo: "**\\"\n---\n');
+  assert.ok(bad);
+  assert.ok(bad.errors.some((e) => e.includes("unterminated")));
+  assert.equal(bad.data.applyTo, undefined);
+  const esc = parseFrontMatter('---\napplyTo: "a\\"b"\n---\n');
+  assert.ok(esc);
+  assert.equal(esc.errors.length, 0);
+  assert.equal(typeof esc.data.applyTo, "string");
+  const sq = parseFrontMatter("---\nx: 'it''s'\n---\n");
+  assert.ok(sq);
+  assert.equal(sq.errors.length, 0);
+  assert.equal(sq.data.x, "it's");
+  const sqBad = parseFrontMatter("---\nx: 'abc''\n---\n");
+  assert.ok(sqBad);
+  assert.ok(sqBad.errors.some((e) => e.includes("unterminated")));
+});
+
+test("front matter: a trailing comment after a quoted value is fine; errors come out in line order", () => {
+  const c = parseFrontMatter('---\napplyTo: "**/*.ts" # comment\nx: \'it\'\'s\' # c\n---\n');
+  assert.ok(c);
+  assert.equal(c.errors.length, 0);
+  assert.equal(c.data.applyTo, "**/*.ts");
+  assert.equal(c.data.x, "it's");
+  const junk = parseFrontMatter('---\na: "open\nnot a key\n---\n');
+  assert.ok(junk);
+  assert.equal(junk.errors.length, 2);
+  assert.match(junk.errors[0], /^line 2: unterminated/);
+  assert.match(junk.errors[1], /^line 3:/);
 });

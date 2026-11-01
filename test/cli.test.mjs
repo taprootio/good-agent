@@ -167,6 +167,21 @@ test("config: a directory is not a canonical file; an absolute canonical path is
   } finally { ign.cleanup(); }
 });
 
+test("canonical/detect words a directory and a missing file differently", () => {
+  const dir = tempTree({ "docs/x.md": "x\n", "AGENTS.md": "# a\n", "good-agent.config.json": '{"canonical":"docs"}\n' });
+  try {
+    const j = JSON.parse(run(["check", "--json", "--cwd", dir.root]).stdout);
+    const f = j.findings.find((/** @type {any} */ x) => x.rule === "canonical/detect");
+    assert.match(f.message, /not a readable regular file/);
+  } finally { dir.cleanup(); }
+  const gone = tempTree({ "AGENTS.md": "# a\n", "good-agent.config.json": '{"canonical":"missing.md"}\n' });
+  try {
+    const j = JSON.parse(run(["check", "--json", "--cwd", gone.root]).stdout);
+    const f = j.findings.find((/** @type {any} */ x) => x.rule === "canonical/detect");
+    assert.match(f.message, /does not exist/);
+  } finally { gone.cleanup(); }
+});
+
 test("an unreadable configured canonical file is reported, not accepted", async () => {
   if (process.getuid && process.getuid() === 0) return; // root can read anything
   const { chmodSync } = await import("node:fs");

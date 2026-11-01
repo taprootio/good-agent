@@ -25,6 +25,9 @@ export function stripCode(src) {
     const depth = quote ? (quote[0].match(/>/g) ?? []).length : 0;
     const rest = quote ? line.slice(quote[0].length) : line;
     const open = rest.match(/^\s{0,3}(`{3,}|~{3,})/);
+    // A quoted fence ends with the blockquote: a shallower line (a blank line
+    // or one with no `>`) closes it and is then read normally.
+    if (fence && fence.depth > 0 && depth < fence.depth) fence = null;
     if (fence) {
       lines[i] = " ".repeat(line.length);
       if (open && depth === fence.depth && open[1][0] === fence.char && open[1].length >= fence.length && rest.trim() === open[1]) fence = null;
@@ -39,20 +42,24 @@ export function stripCode(src) {
   // (not escaped, by backslash parity) closes with the same run inside one
   // block. A blank line ends a block; an ATX heading and a list item each
   // start one, and a heading is a block of its own. A thematic break ends a
-  // block and is kept as is; a table row is a block of its own, blanked per
-  // cell.
+  // block and is kept as is; a table row (starts with `|`, heads a delimiter
+  // row, or follows a table row) is a block of its own, blanked per cell.
   /** @type {string[]} */
   const out = [];
   /** @type {string[]} */
   let block = [];
   const flush = () => { if (block.length) { out.push(blankSpans(block.join("\n"))); block = []; } };
-  for (const line of lines) {
+  let inTable = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
     const bare = line.replace(/\r$/, "");
     const blank = bare.trim() === "";
     const heading = /^\s{0,3}#{1,6}(\s|$)/.test(bare);
     const item = /^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s/.test(bare);
     const rule = /^\s{0,3}([*\-_])(?:\s*\1){2,}\s*$/.test(bare);
-    const row = bare.trim().startsWith("|") || bare.includes(" | ");
+    /** @type {boolean} */
+    const row = bare.trim().startsWith("|") || (bare.includes("|") && (inTable || nextIsDelimiter(lines, i)));
+    inTable = row;
     if (blank) { flush(); out.push(line); continue; }
     if (rule) { flush(); out.push(line); continue; }
     if (heading) { flush(); out.push(blankSpans(line)); continue; }
@@ -62,6 +69,21 @@ export function stripCode(src) {
   }
   flush();
   return out.join("\n");
+}
+
+/**
+ * Whether the next non-blank line after `index` is a GFM table delimiter
+ * row (it has a pipe, so a lone `---` is not one).
+ * @param {string[]} lines
+ * @param {number} index
+ */
+function nextIsDelimiter(lines, index) {
+  for (let j = index + 1; j < lines.length; j += 1) {
+    const bare = lines[j].replace(/\r$/, "");
+    if (bare.trim() === "") continue;
+    return bare.includes("|") && /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(bare);
+  }
+  return false;
 }
 
 /**
@@ -200,26 +222,53 @@ export function parseFrontMatter(src) {
     errors.push(`line ${i + 1}: cannot parse "${raw.trim()}"`);
   }
   finish();
+  const lineOfError = (/** @type {string} */ e) => Number(e.match(/^line (\d+):/)?.[1] ?? Number.MAX_SAFE_INTEGER);
+  errors.sort((x, y) => lineOfError(x) - lineOfError(y));
   let bodyStart = 0;
   for (let i = 0; i <= end; i += 1) bodyStart += lines[i].length + 1;
   return { data, bodyStart: Math.min(bodyStart, src.length), errors };
 }
 
 /**
- * Whether a value opens with a quote it never closes.
+ * Index of the quote that closes a quoted value, or -1. A double-quoted
+ * value closes at an unescaped `"` (a backslash skips the next character); a
+ * single-quoted one at a `'` not followed by another `'` (a doubled one is a
+ * literal quote).
+ * @param {string} v  trimmed, starting with the quote
+ */
+function closingQuote(v) {
+  const q = v[0];
+  for (let i = 1; i < v.length; i += 1) {
+    if (q === '"' && v[i] === "\\") { i += 1; continue; }
+    if (v[i] !== q) continue;
+    if (q === "'" && v[i + 1] === "'") { i += 1; continue; }
+    return i;
+  }
+  return -1;
+}
+
+/**
+ * Whether a value opens with a quote it never closes. Only whitespace or a
+ * ` # comment` may follow the closing quote.
  * @param {string} value
  */
 function isUnterminated(value) {
   const v = value.trim();
-  const q = v[0];
-  return (q === '"' || q === "'") && !(v.length >= 2 && v.endsWith(q));
+  if (v[0] !== '"' && v[0] !== "'") return false;
+  const close = closingQuote(v);
+  if (close < 0) return true;
+  const rest = v.slice(close + 1);
+  return !(rest.trim() === "" || /^\s+#/.test(rest));
 }
 
 /** @param {string} value */
 function unquote(value) {
   const v = value.trim();
-  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) return v.slice(1, -1);
-  return v;
+  if (v[0] !== '"' && v[0] !== "'") return v;
+  const close = closingQuote(v);
+  if (close < 0) return v;
+  const inner = v.slice(1, close);
+  return v[0] === "'" ? inner.replace(/''/g, "'") : inner;
 }
 
 /**

@@ -3,7 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { run, FIXTURES } from "./helpers.mjs";
+import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { run, FIXTURES, REPO } from "./helpers.mjs";
 import { RULES } from "../src/rules/index.mjs";
 
 /** Every fixture directory that holds an expected.json, at depth one or two. */
@@ -57,7 +59,8 @@ test("the import fix for .claude/CLAUDE.md is relative to that file", async () =
   assert.equal(importText("CLAUDE.md", "docs/My Guide.md"), "@docs/My\\ Guide.md");
 });
 
-test("canonical/name can be imported on its own (no circular import through the engine)", async () => {
-  const mod = await import("../src/rules/canonical/name.mjs");
-  assert.equal(mod.default.id, "canonical/name");
+test("canonical/name can be imported on its own (no circular import through the engine)", () => {
+  const url = pathToFileURL(join(REPO, "src", "rules", "canonical", "name.mjs")).href;
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", "await import(process.argv[1])", "--", url], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
 });

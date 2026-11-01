@@ -297,14 +297,16 @@ const CLAUDE_ENTRY = /(^|\/)(CLAUDE\.md|CLAUDE\.local\.md)$|(^|\/)\.claude\/(CLA
 
 /**
  * Imports that sit past the four-hop limit when Claude reads any CLAUDE.md,
- * CLAUDE.local.md or rule file, whether it loads at launch or on demand
- * (subdirectory files, path-scoped rules). One entry per target file.
+ * CLAUDE.local.md or rule file (or the AGENTS.md fallback), whether it loads
+ * at launch or on demand (subdirectory files, path-scoped rules). One entry per target file.
  * @param {Repo} repo
  * @param {import("./config.mjs").Config} config
  * @returns {{ file: string, via: string, line: number }[]}
  */
 export function claudeImportDepth(repo, config = defaultConfig()) {
   const starts = repo.files.filter((f) => CLAUDE_ENTRY.test(f.path)).map((f) => f.path);
+  // With no CLAUDE.md the launch set falls back to AGENTS.md, so it is an entry point too.
+  if (claudeLaunchSet(repo, config).fallback) starts.push("AGENTS.md");
   return walkClaudeImports(repo, config, starts).tooDeep;
 }
 

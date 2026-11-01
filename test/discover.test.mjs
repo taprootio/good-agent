@@ -208,3 +208,17 @@ test("claudeImportDepth counts path-scoped rules and ignores a shorter route", (
     assert.deepEqual(claudeImportDepth(discover(t.root, defaultConfig()), defaultConfig()), []);
   } finally { t.cleanup(); }
 });
+
+test("claudeImportDepth starts from the AGENTS.md fallback when there is no CLAUDE.md", () => {
+  const t = tempTree({
+    "AGENTS.md": "@docs/a.md\n",
+    "docs/a.md": "@b.md\n", "docs/b.md": "@c.md\n", "docs/c.md": "@d.md\n", "docs/d.md": "@e.md\n", "docs/e.md": "end\n",
+  });
+  try {
+    assert.deepEqual(claudeImportDepth(discover(t.root, defaultConfig()), defaultConfig()), [{ file: "docs/e.md", via: "docs/d.md", line: 1 }]);
+    const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
+    const hits = j.findings.filter((/** @type {any} */ f) => f.rule === "claude/import-depth");
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].file, "docs/d.md");
+  } finally { t.cleanup(); }
+});
