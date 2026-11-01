@@ -99,3 +99,50 @@ test("a heading is its own block; list items start blocks; deeper nesting and __
   markdownLinks(`[x](missing.md "${"a\n".repeat(400)}`);
   assert.ok(Date.now() - started < 1000, "title scan must be linear");
 });
+
+test("a thematic break ends an inline code block, so a stray backtick does not span it", () => {
+  assert.deepEqual(markdownLinks("`before\n***\n[x](missing.md)`\n").map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(markdownLinks("`before\n- - -\n[x](missing.md)`\n").map((l) => l.target), ["missing.md"]);
+});
+
+test("a table row is its own block and code spans are blanked per cell", () => {
+  assert.deepEqual(markdownLinks("| a ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(markdownLinks("| `a | b` | [x](kept.md) |\n").map((l) => l.target), ["kept.md"]);
+});
+
+test("a normal paragraph still blanks a span across lines and keeps the link outside it", () => {
+  assert.deepEqual(markdownLinks("`a\nb` [y](z.md)\n").map((l) => l.target), ["z.md"]);
+  assert.deepEqual(markdownLinks("`a\n[x](hidden.md)\nb` [y](z.md)\n").map((l) => l.target), ["z.md"]);
+});
+
+test("a fence inside a blockquote hides its content; a plain quoted link is kept", () => {
+  const src = "> ~~~\n> [x](missing.md)\n> @AGENTS.md\n> ~~~\n";
+  assert.deepEqual(markdownLinks(src), []);
+  assert.deepEqual(claudeImports(src), []);
+  assert.equal(stripCode(src).split("\n").length, src.split("\n").length);
+  assert.deepEqual(markdownLinks("> [y](q.md)\n").map((l) => l.target), ["q.md"]);
+});
+
+test("a quoted fence closes only at the same quote depth", () => {
+  const src = "> ```\n> [x](a.md)\n```\n> [y](b.md)\n> ```\n\n[z](c.md)\n";
+  assert.deepEqual(markdownLinks(src).map((l) => l.target), ["c.md"]);
+});
+
+test("front matter: an unterminated quoted value is an error and the key is not set", () => {
+  const bad = parseFrontMatter('---\napplyTo: "**\n---\n');
+  assert.ok(bad);
+  assert.ok(bad.errors.some((e) => e.includes("unterminated")));
+  assert.equal(bad.data.applyTo, undefined);
+  const nested = parseFrontMatter("---\nmetadata:\n  owner: 'je\n---\n");
+  assert.ok(nested);
+  assert.ok(nested.errors.some((e) => e.includes("unterminated")));
+  assert.equal(/** @type {any} */ (nested.data.metadata).owner, undefined);
+  const good = parseFrontMatter('---\napplyTo: "**/*.ts"\n---\n');
+  assert.ok(good);
+  assert.equal(good.errors.length, 0);
+  assert.equal(good.data.applyTo, "**/*.ts");
+  const multi = parseFrontMatter('---\ndescription: "first\n  second"\n---\n');
+  assert.ok(multi);
+  assert.equal(multi.errors.length, 0);
+  assert.equal(multi.data.description, "first second");
+});

@@ -263,35 +263,6 @@ export function codexChains(repo) {
  * @returns {{ entries: LaunchEntry[], lines: number, fallback: boolean, tooDeep: { file: string, via: string, line: number }[] }}
  */
 export function claudeLaunchSet(repo, config = defaultConfig()) {
-  const MAX_DEPTH = 4;
-  /** @type {LaunchEntry[]} */
-  const entries = [];
-  /** @type {{ file: string, via: string, line: number }[]} */
-  const tooDeep = [];
-  /** @type {Map<string, InstructionFile>} */
-  const loaded = new Map();
-  /** @type {{ path: string, via: string | null, depth: number, line: number }[]} */
-  const queue = [];
-  /** @type {{ file: string, via: string, line: number }[]} */
-  const deep = [];
-  // Breadth-first, so a file reached by two paths is expanded at its
-  // shallowest depth and the four-hop limit is applied to that depth.
-  const drain = () => {
-    while (queue.length > 0) {
-      const next = /** @type {{ path: string, via: string | null, depth: number, line: number }} */ (queue.shift());
-      if (loaded.has(next.path)) continue;
-      if (next.depth > MAX_DEPTH) { deep.push({ file: next.path, via: /** @type {string} */ (next.via), line: next.line }); continue; }
-      const file = repo.byPath.get(next.path) ?? readOutside(repo, next.path);
-      if (!file) continue;
-      loaded.set(next.path, file);
-      entries.push({ file: next.path, lines: file.lines, via: next.via, depth: next.depth });
-      for (const imp of claudeImports(file.text)) {
-        const resolved = resolveReference(next.path, imp.target, "import");
-        if (resolved === null || loaded.has(resolved) || isIgnoredTarget(resolved, config)) continue;
-        queue.push({ path: resolved, via: next.path, depth: next.depth + 1, line: imp.line });
-      }
-    }
-  };
   const starts = ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"].filter((p) => repo.byPath.has(p));
   for (const f of repo.files) {
     if (!f.path.startsWith(".claude/rules/")) continue;
@@ -304,11 +275,65 @@ export function claudeLaunchSet(repo, config = defaultConfig()) {
     fallback = true;
     starts.push("AGENTS.md");
   }
-  for (const s of starts) queue.push({ path: s, via: null, depth: 0, line: 0 });
-  drain();
-  // A target that was loaded by a shorter path is not too deep after all.
-  for (const d of deep) if (!loaded.has(d.file) && !tooDeep.some((t) => t.file === d.file)) tooDeep.push(d);
+  const { entries, tooDeep } = walkClaudeImports(repo, config, starts);
   return { entries, lines: entries.reduce((n, e) => n + e.lines, 0), fallback, tooDeep };
+}
+
+/** Every file Claude Code reads as a memory entry point, at any depth. */
+const CLAUDE_ENTRY = /(^|\/)(CLAUDE\.md|CLAUDE\.local\.md)$|(^|\/)\.claude\/(CLAUDE\.md|rules\/.+\.md)$/;
+
+/**
+ * Imports that sit past the four-hop limit when Claude reads any CLAUDE.md,
+ * CLAUDE.local.md or rule file, whether it loads at launch or on demand
+ * (subdirectory files, path-scoped rules). One entry per target file.
+ * @param {Repo} repo
+ * @param {import("./config.mjs").Config} config
+ * @returns {{ file: string, via: string, line: number }[]}
+ */
+export function claudeImportDepth(repo, config = defaultConfig()) {
+  const starts = repo.files.filter((f) => CLAUDE_ENTRY.test(f.path)).map((f) => f.path);
+  return walkClaudeImports(repo, config, starts).tooDeep;
+}
+
+/**
+ * Walk `@` imports breadth-first from `starts` (depth 0), loading each file
+ * once. Breadth-first, so a file reached by two paths is expanded at its
+ * shallowest depth and the four-hop limit is applied to that depth; a target
+ * first reached at hop five that no shorter path reaches is too deep.
+ * @param {Repo} repo
+ * @param {import("./config.mjs").Config} config
+ * @param {string[]} starts
+ * @returns {{ entries: LaunchEntry[], tooDeep: { file: string, via: string, line: number }[] }}
+ */
+function walkClaudeImports(repo, config, starts) {
+  const MAX_DEPTH = 4;
+  /** @type {LaunchEntry[]} */
+  const entries = [];
+  /** @type {Set<string>} */
+  const loaded = new Set();
+  /** @type {{ path: string, via: string | null, depth: number, line: number }[]} */
+  const queue = starts.map((path) => ({ path, via: null, depth: 0, line: 0 }));
+  /** @type {{ file: string, via: string, line: number }[]} */
+  const deep = [];
+  for (let head = 0; head < queue.length; head += 1) {
+    const next = queue[head];
+    if (loaded.has(next.path)) continue;
+    if (next.depth > MAX_DEPTH) { deep.push({ file: next.path, via: /** @type {string} */ (next.via), line: next.line }); continue; }
+    const file = repo.byPath.get(next.path) ?? readOutside(repo, next.path);
+    if (!file) continue;
+    loaded.add(next.path);
+    entries.push({ file: next.path, lines: file.lines, via: next.via, depth: next.depth });
+    for (const imp of claudeImports(file.text)) {
+      const resolved = resolveReference(next.path, imp.target, "import");
+      if (resolved === null || loaded.has(resolved) || isIgnoredTarget(resolved, config)) continue;
+      queue.push({ path: resolved, via: next.path, depth: next.depth + 1, line: imp.line });
+    }
+  }
+  // A target that was loaded by a shorter path is not too deep after all.
+  /** @type {{ file: string, via: string, line: number }[]} */
+  const tooDeep = [];
+  for (const d of deep) if (!loaded.has(d.file) && !tooDeep.some((t) => t.file === d.file)) tooDeep.push(d);
+  return { entries, tooDeep };
 }
 
 /**

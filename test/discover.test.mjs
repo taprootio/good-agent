@@ -1,7 +1,7 @@
 // @ts-check
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { discover, detectCanonical, codexChains, claudeLaunchSet, resolveReference } from "../src/discover.mjs";
+import { discover, detectCanonical, codexChains, claudeLaunchSet, claudeImportDepth, resolveReference } from "../src/discover.mjs";
 import { defaultConfig } from "../src/config.mjs";
 import { tempTree, run } from "./helpers.mjs";
 
@@ -166,5 +166,38 @@ test("budget diagnostics use on-disk bytes for a non-UTF-8 file", async () => {
     const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
     const f = j.findings.find((/** @type {any} */ x) => x.rule === "codex/size-budget");
     assert.equal(f.data.lostBytes, 40000 - 32768);
+  } finally { t.cleanup(); }
+});
+
+test("claudeImportDepth follows on-demand Claude files and the rule reports them", () => {
+  const t = tempTree({
+    "AGENTS.md": AG,
+    "sub/CLAUDE.md": "@docs/a.md\n",
+    "sub/docs/a.md": "@b.md\n",
+    "sub/docs/b.md": "@c.md\n",
+    "sub/docs/c.md": "@d.md\n",
+    "sub/docs/d.md": "@e.md\n",
+    "sub/docs/e.md": "end\n",
+  });
+  try {
+    const repo = discover(t.root, defaultConfig());
+    assert.deepEqual(claudeImportDepth(repo, defaultConfig()), [{ file: "sub/docs/e.md", via: "sub/docs/d.md", line: 1 }]);
+    const r = run(["check", "--json", "--cwd", t.root]);
+    const out = JSON.parse(r.stdout);
+    const hits = out.findings.filter((f) => f.rule === "claude/import-depth");
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].file, "sub/docs/d.md");
+  } finally { t.cleanup(); }
+});
+
+test("claudeImportDepth counts path-scoped rules and ignores a shorter route", () => {
+  const t = tempTree({
+    "CLAUDE.md": "@x.md\n@a.md\n",
+    ".claude/rules/scoped.md": "---\npaths: src/**\n---\n@r1.md\n",
+    "r1.md": "@r2.md\n", "r2.md": "@r3.md\n", "r3.md": "@r4.md\n", "r4.md": "@x.md\n",
+    "a.md": "@b.md\n", "b.md": "@x.md\n", "x.md": "end\n",
+  });
+  try {
+    assert.deepEqual(claudeImportDepth(discover(t.root, defaultConfig()), defaultConfig()), []);
   } finally { t.cleanup(); }
 });

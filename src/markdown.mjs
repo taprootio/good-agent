@@ -15,25 +15,32 @@
  */
 export function stripCode(src) {
   const lines = src.split("\n");
-  /** @type {{ char: string, length: number } | null} */
+  /** @type {{ char: string, length: number, depth: number } | null} */
   let fence = null;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    const open = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    // A blockquote prefix is stripped first; a fence opened inside a quote
+    // closes only on a fenced line at the same quote depth.
+    const quote = line.match(/^(\s{0,3}>\s?)+/);
+    const depth = quote ? (quote[0].match(/>/g) ?? []).length : 0;
+    const rest = quote ? line.slice(quote[0].length) : line;
+    const open = rest.match(/^\s{0,3}(`{3,}|~{3,})/);
     if (fence) {
       lines[i] = " ".repeat(line.length);
-      if (open && open[1][0] === fence.char && open[1].length >= fence.length && line.trim() === open[1]) fence = null;
+      if (open && depth === fence.depth && open[1][0] === fence.char && open[1].length >= fence.length && rest.trim() === open[1]) fence = null;
       continue;
     }
-    if (open && !(open[1][0] === "`" && line.slice(open[0].length).includes("`"))) {
-      fence = { char: open[1][0], length: open[1].length };
+    if (open && !(open[1][0] === "`" && rest.slice(open[0].length).includes("`"))) {
+      fence = { char: open[1][0], length: open[1].length, depth };
       lines[i] = " ".repeat(line.length);
     }
   }
   // Inline code spans may span lines but not blocks: a run of N backticks
   // (not escaped, by backslash parity) closes with the same run inside one
   // block. A blank line ends a block; an ATX heading and a list item each
-  // start one, and a heading is a block of its own.
+  // start one, and a heading is a block of its own. A thematic break ends a
+  // block and is kept as is; a table row is a block of its own, blanked per
+  // cell.
   /** @type {string[]} */
   const out = [];
   /** @type {string[]} */
@@ -44,13 +51,33 @@ export function stripCode(src) {
     const blank = bare.trim() === "";
     const heading = /^\s{0,3}#{1,6}(\s|$)/.test(bare);
     const item = /^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s/.test(bare);
+    const rule = /^\s{0,3}([*\-_])(?:\s*\1){2,}\s*$/.test(bare);
+    const row = bare.trim().startsWith("|") || bare.includes(" | ");
     if (blank) { flush(); out.push(line); continue; }
+    if (rule) { flush(); out.push(line); continue; }
     if (heading) { flush(); out.push(blankSpans(line)); continue; }
+    if (row) { flush(); out.push(splitCells(line).map(blankSpans).join("|")); continue; }
     if (item) flush();
     block.push(line);
   }
   flush();
   return out.join("\n");
+}
+
+/**
+ * Split a table row on unescaped `|`, so code spans are blanked per cell.
+ * @param {string} row
+ * @returns {string[]}
+ */
+function splitCells(row) {
+  /** @type {string[]} */
+  const cells = [];
+  let start = 0;
+  for (let i = 0; i < row.length; i += 1) {
+    if (row[i] === "|" && !isEscaped(row, i)) { cells.push(row.slice(start, i)); start = i + 1; }
+  }
+  cells.push(row.slice(start));
+  return cells;
 }
 
 /**
@@ -128,11 +155,19 @@ export function parseFrontMatter(src) {
   const data = Object.create(null);
   /** @type {string[]} */
   const errors = [];
-  /** @type {string | null} */
-  let lastKey = null;
+  /** @type {{ key: string, line: number, value: string } | null} */
+  let pending = null;
   /** @type {string | null} */
   let nestedKey = null;
   let nestedIndent = 0;
+  // A top-level value is complete once its continuation lines are folded, so
+  // it is checked and stored when the next key (or the end) arrives.
+  const finish = () => {
+    if (!pending) return;
+    if (isUnterminated(pending.value)) errors.push(`line ${pending.line}: unterminated quoted value for "${pending.key}"`);
+    else data[pending.key] = unquote(pending.value);
+    pending = null;
+  };
   for (let i = 1; i < end; i += 1) {
     const raw = lines[i].replace(/\r$/, "");
     if (raw.trim() === "" || raw.trim().startsWith("#")) continue;
@@ -141,8 +176,9 @@ export function parseFrontMatter(src) {
     if (indent === 0 && top) {
       const [, key, value] = top;
       if (key === "__proto__" || key === "constructor" || key === "prototype") { errors.push(`line ${i + 1}: "${key}" is not an allowed key`); continue; }
-      if (value === "") { data[key] = Object.create(null); nestedKey = key; nestedIndent = 0; lastKey = null; }
-      else { data[key] = unquote(value); lastKey = key; nestedKey = null; }
+      finish();
+      if (value === "") { data[key] = Object.create(null); nestedKey = key; nestedIndent = 0; }
+      else { pending = { key, line: i + 1, value: value.trim() }; nestedKey = null; }
       continue;
     }
     if (indent > 0 && nestedKey) {
@@ -152,19 +188,31 @@ export function parseFrontMatter(src) {
         if (nestedIndent === 0) nestedIndent = indent;
         if (indent !== nestedIndent || nested[2] === "") { errors.push(`line ${i + 1}: nesting deeper than one level under "${nestedKey}" is not supported`); continue; }
         if (nested[1] === "__proto__" || nested[1] === "constructor" || nested[1] === "prototype") { errors.push(`line ${i + 1}: "${nested[1]}" is not an allowed key`); continue; }
+        if (isUnterminated(nested[2])) { errors.push(`line ${i + 1}: unterminated quoted value for "${nested[1]}"`); continue; }
         target[nested[1]] = unquote(nested[2]);
         continue;
       }
     }
-    if (indent > 0 && lastKey && typeof data[lastKey] === "string") {
-      data[lastKey] = `${data[lastKey]} ${raw.trim()}`.trim();
+    if (indent > 0 && pending) {
+      pending.value = `${pending.value} ${raw.trim()}`.trim();
       continue;
     }
     errors.push(`line ${i + 1}: cannot parse "${raw.trim()}"`);
   }
+  finish();
   let bodyStart = 0;
   for (let i = 0; i <= end; i += 1) bodyStart += lines[i].length + 1;
   return { data, bodyStart: Math.min(bodyStart, src.length), errors };
+}
+
+/**
+ * Whether a value opens with a quote it never closes.
+ * @param {string} value
+ */
+function isUnterminated(value) {
+  const v = value.trim();
+  const q = v[0];
+  return (q === '"' || q === "'") && !(v.length >= 2 && v.endsWith(q));
 }
 
 /** @param {string} value */
