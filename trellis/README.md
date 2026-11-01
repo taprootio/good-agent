@@ -11,8 +11,6 @@ generated; do not hand-edit between the markers — edit the per-item files in
 
 | ID | Title | Owner | Priority | Effort |
 | --- | --- | --- | --- | --- |
-| [GA0002](active/GA0002.md) | Ship the instruction-hygiene skill and `init --skill` | je | High | 3 |
-| [GA0003](active/GA0003.md) | Write the write-task and work-task playbooks with the review loop | je | High | 5 |
 | [GA0004](active/GA0004.md) | Build `good-agent review`, the fresh read-only external reviewer | je | High | 8 |
 | [GA0005](active/GA0005.md) | Claim the npm names and set up the release workflow | je | Medium | 2 |
 

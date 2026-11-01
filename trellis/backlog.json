@@ -8,40 +8,11 @@
   ],
   "nextId": "GA0008",
   "counts": {
-    "active": 6,
-    "completed": 1,
+    "active": 4,
+    "completed": 3,
     "removed": 0
   },
   "tasks": [
-    {
-      "id": "GA0002",
-      "title": "Ship the instruction-hygiene skill and `init --skill`",
-      "status": "active",
-      "milestone": "Alpha",
-      "priority": "High",
-      "effort": 3,
-      "depends_on": [
-        "GA0001"
-      ],
-      "owner": "je",
-      "collaborators": [],
-      "summary": "Write the `good-agent` SKILL.md that teaches an AI tool to set up and audit instruction files, and the `init --skill` command that installs it for Claude Code, Codex and Copilot."
-    },
-    {
-      "id": "GA0003",
-      "title": "Write the write-task and work-task playbooks with the review loop",
-      "status": "active",
-      "milestone": "Alpha",
-      "priority": "High",
-      "effort": 5,
-      "depends_on": [
-        "GA0001",
-        "GA0002"
-      ],
-      "owner": "je",
-      "collaborators": [],
-      "summary": "Capture Taproot's story-writing and task-working loops as universal good-agent playbooks (shipped as skills) with a shared review-loop section covering internal review until clean and external review by the other AI tool until clean."
-    },
     {
       "id": "GA0004",
       "title": "Build `good-agent review`, the fresh read-only external reviewer",
@@ -115,6 +86,37 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Ship the `good-agent` CLI with the nine v0.1 rules, canonical-file detection, config, human and JSON output, fixtures per rule, and the corpus script, as designed in docs/design.md.",
+      "completed_on": "2026-11-01"
+    },
+    {
+      "id": "GA0002",
+      "title": "Ship the instruction-hygiene skill and `init --skill`",
+      "status": "completed",
+      "milestone": "Alpha",
+      "priority": "High",
+      "effort": 3,
+      "depends_on": [
+        "GA0001"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Write the `good-agent` SKILL.md that teaches an AI tool to set up and audit instruction files, and the `init --skill` command that installs it for Claude Code, Codex and Copilot.",
+      "completed_on": "2026-11-01"
+    },
+    {
+      "id": "GA0003",
+      "title": "Write the write-task and work-task playbooks with the review loop",
+      "status": "completed",
+      "milestone": "Alpha",
+      "priority": "High",
+      "effort": 5,
+      "depends_on": [
+        "GA0001",
+        "GA0002"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Capture Taproot's story-writing and task-working loops as universal good-agent playbooks (shipped as skills) with a shared review-loop section covering internal review until clean and external review by the other AI tool until clean.",
       "completed_on": "2026-11-01"
     }
   ]
