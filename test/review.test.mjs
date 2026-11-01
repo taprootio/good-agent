@@ -163,12 +163,32 @@ test("tree digest changes with content, additions, deletions, a staged change an
   } finally { r.cleanup(); }
 });
 
-test("tree digest of a directory that is not a git repository still works", () => {
+test("outside a git working tree there is no digest: it throws and review exits 2 before the lock and any reviewer", () => {
+  const t = tempTree({ "a.txt": "a\n", "task.md": TASK });
+  const reviews = scratch();
+  try {
+    assert.throws(() => treeDigest(t.root), /needs a git working tree/);
+    const res = review(["--by", "codex", "--prompt", "story", "--task", "task.md"], { root: t.root, reviews });
+    assert.equal(res.status, 2, res.stderr);
+    assert.match(res.stderr, new RegExp(`good-agent review needs a git working tree; .+ is not inside one`));
+    assert.equal(res.record, "", "the fake was never invoked, not even for --version");
+    assert.ok(!existsSync(join(reviews, "codex.lock")), "no lock was taken");
+    // A subdirectory of the .git directory is not a working tree either.
+    const g = repo();
+    try {
+      assert.equal(review(["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md", "--cwd", join(g.root, ".git")], { root: g.root }).status, 2);
+    } finally { g.cleanup(); }
+  } finally { t.cleanup(); }
+});
+
+test("a repository before its first commit has a digest", () => {
   const t = tempTree({ "a.txt": "a\n" });
   try {
+    execFileSync("git", ["-C", t.root, "init", "-q", "-b", "main"]);
     const d = treeDigest(t.root);
-    assert.match(d, /^[0-9a-f]{64}$/);
     assert.equal(treeDigest(t.root), d);
+    writeFileSync(join(t.root, "b.txt"), "b\n");
+    assert.notEqual(treeDigest(t.root), d);
   } finally { t.cleanup(); }
 });
 
@@ -818,4 +838,24 @@ test("runChild: when onSpawn throws the group is gone and no timer is left befor
   const out = JSON.parse(r.stdout);
   assert.match(out.error, /could not record the reviewer's process group in the lock: lock unwritable/);
   assert.equal(out.groupGone, true); assert.equal(out.kidGone, true);
+});
+
+test("a reviewer group that survives SIGKILL fails the round and keeps the lock until the group is gone", () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const base = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    // The override reports the group alive after both kills, as if SIGKILL had not worked.
+    const res = review(base, { root: r.root, reviews, env: { GOOD_AGENT_TEST_GROUP_ALIVE: "1", NODE_TEST_CONTEXT: "child-v8" } });
+    assert.equal(res.status, 3, res.stderr);
+    assert.match(res.stderr, /REVIEW_ERROR: reviewer process group \d+ survived SIGKILL; the lock is retained until it exits/);
+    const lock = JSON.parse(readFileSync(join(reviews, "codex.lock"), "utf8"));
+    assert.equal(typeof lock.pgid, "number", "the lock still records the group");
+    assert.match(metas(reviews)["GA0002-story-r1"].error, /survived SIGKILL/);
+    assert.equal(metas(reviews)["GA0002-story-r1"].status, "REVIEW_ERROR");
+    // The group really is gone, so the stale-lock rule frees the lock for the next review.
+    const next = review(base, { root: r.root, reviews });
+    assert.equal(next.status, 0, next.stderr);
+    assert.ok(!existsSync(join(reviews, "codex.lock")));
+  } finally { r.cleanup(); }
 });

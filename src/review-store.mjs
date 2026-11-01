@@ -30,26 +30,37 @@ export function git(root, args) {
 }
 
 /**
- * Like `git`, but the output is returned untrimmed (for NUL-separated lists)
- * and a failure is an empty string.
+ * Whether `root` is inside a git working tree.
  * @param {string} root
- * @param {string[]} args
  */
-function gitRaw(root, args) {
-  try {
-    return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 256 * 1024 * 1024 });
-  } catch { return ""; }
+export function insideWorkTree(root) {
+  return git(root, ["rev-parse", "--is-inside-work-tree"]) === "true";
 }
 
 /**
  * The top of the working tree that contains `root` (`git rev-parse
- * --show-toplevel`), or `root` itself outside a git repository. Digests and
- * the reviews-inside-the-tree check use it, so running from a subdirectory
- * does not shrink what they cover.
+ * --show-toplevel`). Digests and the reviews-inside-the-tree check use it,
+ * so running from a subdirectory does not shrink what they cover. Outside a
+ * git working tree it throws: there is nothing a digest could compare.
  * @param {string} root
  */
 export function topLevel(root) {
-  return git(root, ["rev-parse", "--show-toplevel"]) || resolve(root);
+  const top = git(root, ["rev-parse", "--show-toplevel"]);
+  if (!top) throw new Error(`good-agent review needs a git working tree; ${resolve(root)} is not inside one`);
+  return top;
+}
+
+/**
+ * Run git and throw on any failure, with the NUL-separated output untrimmed.
+ * @param {string} root
+ * @param {string[]} args
+ */
+function gitStrict(root, args) {
+  try {
+    return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 256 * 1024 * 1024 });
+  } catch (error) {
+    throw new Error(`the tree cannot be fingerprinted (git ${args.slice(0, 2).join(" ")} failed: ${/** @type {Error} */ (error).message.split("\n")[0]})`);
+  }
 }
 
 /**
@@ -253,17 +264,19 @@ function indexFingerprint(root) {
 
 /**
  * A digest of the repository state a review must not change. Each part is
- * delimited by a NUL and carries a label: `git rev-parse HEAD` (or "none"),
- * a hash of `git ls-files --stage -z` for the index (every entry's mode,
- * object id, stage and path, conflicts included; "none" when the directory is
- * not a git repository; a git failure throws), the porcelain status, and then
+ * delimited by a NUL and carries a label: `git rev-parse HEAD` (or
+ * `unborn:<ref>` before the first commit), a hash of `git ls-files --stage -z`
+ * for the index (every entry's mode, object id, stage and path, conflicts
+ * included), the porcelain status, and then
  * the path and content hash of every file in `git ls-files -co
  * --exclude-standard` that still exists. HEAD and the index are in the digest
  * so an empty commit or a staged change that leaves the status unchanged
  * still voids a round; the status part covers deletions and the content part
  * covers edits and additions. A symlink contributes its target path, not the
  * content it points at. Everything is computed from the top of the working
- * tree (`git rev-parse --show-toplevel`), whatever directory is passed.
+ * tree (`git rev-parse --show-toplevel`), whatever directory is passed. Any
+ * git failure throws, including a directory that is not in a working tree, so
+ * a digest can never be a constant that accepts every change.
  * @param {string} dir
  */
 export function treeDigest(dir) {
@@ -271,11 +284,13 @@ export function treeDigest(dir) {
   const hash = createHash("sha256");
   /** @param {string} label @param {string | Buffer} value */
   const part = (label, value) => { hash.update(label); hash.update("\0"); hash.update(value); hash.update("\0"); };
-  const inRepo = git(root, ["rev-parse", "--git-dir"]) !== null;
-  part("head", git(root, ["rev-parse", "HEAD"]) ?? "none");
-  part("index", inRepo ? indexFingerprint(root) : "none");
-  part("status", git(root, ["status", "--porcelain=v1", "-z"]) ?? "none");
-  const listed = inRepo ? gitRaw(root, ["ls-files", "-co", "--exclude-standard", "-z"]) : "";
+  const head = git(root, ["rev-parse", "--verify", "-q", "HEAD"]);
+  const unborn = head === null ? git(root, ["symbolic-ref", "-q", "HEAD"]) : null;
+  if (head === null && unborn === null) throw new Error("the tree cannot be fingerprinted (HEAD is neither a commit nor an unborn branch)");
+  part("head", head ?? `unborn:${unborn}`);
+  part("index", indexFingerprint(root));
+  part("status", gitStrict(root, ["status", "--porcelain=v1", "-z"]));
+  const listed = gitStrict(root, ["ls-files", "-co", "--exclude-standard", "-z"]);
   for (const rel of listed.split("\0").filter(Boolean).sort()) {
     const abs = join(root, rel);
     /** @type {Buffer | null} */

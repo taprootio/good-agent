@@ -44,8 +44,11 @@ the message names the log).
 
 ## What it does, in order
 
-1. Loads config, validates flags (all exit 2, before any reviewer or its
-   CLI runs), refuses a reviews directory inside the repository being
+1. Requires a git working tree (`git rev-parse --is-inside-work-tree`):
+   outside one there is nothing a tree digest could compare, so the command
+   exits 2 with `good-agent review needs a git working tree; <root> is not
+   inside one` before the lock and before any reviewer CLI runs. Then loads
+   config, validates flags (all exit 2, before any reviewer or its CLI runs), refuses a reviews directory inside the repository being
    reviewed (the whole working tree, not only `--cwd`), and derives the review id: the task's
    front-matter `id`, else the task file's basename, else the first
    `/`-separated branch segment matching `^[A-Za-z]+[0-9]+$` uppercased,
@@ -85,11 +88,10 @@ the message names the log).
 5. Records the tree digest, builds the prompt and, for Codex, lists and
    switches off MCP servers (a server counts as enabled unless the listing
    says `enabled: false`, in both the first listing and the re-list). The digest hashes, each part labelled and
-   delimited by a NUL: `git rev-parse HEAD` (or `none`), a hash of `git ls-files
+   delimited by a NUL: `git rev-parse HEAD` (or `unborn:<ref>` before the first commit), a hash of `git ls-files
    --stage -z` for the index (every entry's mode, object id, stage and path,
-   conflict stages included, so it works during an unresolved merge; `none`
-   outside a git repository; a git failure refuses the review with
-   `REVIEW_ERROR: the index cannot be fingerprinted`), the porcelain status, and
+   conflict stages included, so it works during an unresolved merge; any git
+   failure while fingerprinting refuses the review with `REVIEW_ERROR`), the porcelain status, and
    the path and content hash of every file from `git ls-files -co
    --exclude-standard` that still exists (a symlink counts by its target),
    all taken from the top of the working tree (`git rev-parse
@@ -111,7 +113,11 @@ the message names the log).
    running in the group is sent SIGTERM, given two seconds, then sent
    SIGKILL, and the run resumes only once the group is gone, so the lock is
    never released while part of a review still runs (success and error
-   paths alike).
+   paths alike). If the group is still alive after SIGKILL and the second
+   wait, the round is recorded as `REVIEW_ERROR: reviewer process group <pgid>
+   survived SIGKILL; the lock is retained until it exits` (exit 3) and the
+   lock is not released: it keeps the recorded group id, and the next run
+   takes it over once the group is gone.
 7. Records the digest again. A moved tree makes the result void
    (`REVIEW_UNSAFE`). A non-zero exit (with the first stderr line that names
    a rejected flag), a timeout, an interruption, missing output, a
@@ -256,7 +262,7 @@ directory. GA0006 retires the exchange only when no row below is blank.
 | T3 empty lock never taken over | changed by design: an unreadable lock is taken over once it is more than five seconds old (a crash between creating and filling it); covered by "a half-written lock" and "an unreadable lock honours --no-wait and the deadline" |
 | T4 second watcher refused while the first holds the lock; released on SIGTERM | covered by "lock contention" (wait, timeout, `--no-wait`) and "a Codex and a Claude review" (the same reviewer queues); the lock is released in `finally` and after failures ("failure modes") |
 | T5 recovery of terminal, dead and orphaned claims | not applicable: watcher-only. There are no claims; a round's `.meta.json` records its status and a failed round keeps its number ("failure modes") |
-| T6 orphan found by literal path with regex metacharacters | not applicable: watcher-only. The reviewer is a child of the runner and its whole process group is killed on timeout ("failure modes") |
+| T6 orphan found by literal path with regex metacharacters | not applicable: watcher-only. The reviewer is a child of the runner and its whole process group is killed on timeout ("failure modes"); a group that survives SIGKILL keeps the lock ("a reviewer group that survives SIGKILL") |
 | T7 a watcher that cannot run the reviewer refuses to start | covered by "old CLI version": a missing CLI or an old version is refused before any round |
 | T8 a mailbox path `ps` would rewrite is refused | not applicable: watcher-only (no `ps` scanning, no mailbox paths) |
 | T9 a review runs isolated and keyless; a signal stops the watcher | covered by "codex happy path" and "claude happy path": hardened flags asserted and all eight credentials asserted unset in both; "a reviewer that succeeds and leaves a grandchild behind" (and "fails and leaves") shows the group is reaped before the lock is released; a SIGTERM or SIGHUP to the runner kills the reviewer's process group and fails the round, covered by "a SIGTERM to the runner" and "a SIGHUP to the runner" |

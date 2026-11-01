@@ -172,7 +172,8 @@ git diff --cached --name-only -z | xargs -0 -r npx --no-install good-agent check
 
 ### Review runner
 
-`good-agent review` spawns a fresh, read-only review by the other AI tool
+`good-agent review` needs a git working tree (outside one it exits 2) and
+spawns a fresh, read-only review by the other AI tool
 (Codex reviews Claude's work, Claude reviews Codex's), checks the findings
 against `schema/findings.json`, and prints them. Run it as a background
 command from the authoring tool and wait for the one notification:

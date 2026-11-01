@@ -14,7 +14,7 @@ import { parseArgs } from "node:util";
 import { ConfigError, loadConfig } from "./config.mjs";
 import { RULE_IDS } from "./rules/index.mjs";
 import { VERSION } from "./engine.mjs";
-import { ReviewUsageError, acquireLock, deriveId, git, repoSlug, reserveRound, reviewsRoot, topLevel, treeDigest, writeJson } from "./review-store.mjs";
+import { ReviewUsageError, acquireLock, deriveId, git, insideWorkTree, repoSlug, reserveRound, reviewsRoot, topLevel, treeDigest, writeJson } from "./review-store.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const PROMPTS_DIR = join(here, "..", "skill", "review-loop", "references");
@@ -249,8 +249,14 @@ function trapSignals() {
   return trap;
 }
 
-/** @param {number} pgid */
+/**
+ * Whether anything is left in a process group. The test-only override
+ * (honoured only inside a `node --test` process) reports the group alive
+ * forever, to exercise the survived-SIGKILL path that cannot be made on demand.
+ * @param {number} pgid
+ */
 function groupAlive(pgid) {
+  if (process.env.GOOD_AGENT_TEST_GROUP_ALIVE && process.env.NODE_TEST_CONTEXT) return true;
   try { process.kill(-pgid, 0); return true; } catch (error) { return /** @type {NodeJS.ErrnoException} */ (error).code === "EPERM"; }
 }
 
@@ -258,16 +264,18 @@ function groupAlive(pgid) {
  * Terminate everything left in a reviewer's process group: SIGTERM, wait up
  * to two seconds for the group to empty, then SIGKILL and wait for it to go.
  * @param {number | undefined} pgid
+ * @returns {Promise<boolean>}  false when the group is still alive after SIGKILL
  */
 async function reapGroup(pgid) {
-  if (!pgid || process.platform === "win32" || !groupAlive(pgid)) return;
+  if (!pgid || process.platform === "win32" || !groupAlive(pgid)) return true;
   /** @param {number} ms */
   const until = async (ms) => { const end = Date.now() + ms; while (groupAlive(pgid) && Date.now() < end) await new Promise((r) => setTimeout(r, 25)); };
   try { process.kill(-pgid, "SIGTERM"); } catch { /* gone */ }
   await until(2000);
-  if (!groupAlive(pgid)) return;
+  if (!groupAlive(pgid)) return true;
   try { process.kill(-pgid, "SIGKILL"); } catch { /* gone */ }
   await until(2000);
+  return !groupAlive(pgid);
 }
 
 /**
@@ -277,11 +285,11 @@ async function reapGroup(pgid) {
  * @param {string} command
  * @param {string[]} argv
  * @param {{ cwd: string, env: Env, input: string, timeoutMs: number, trap: ReturnType<typeof trapSignals>, onSpawn: (pgid: number) => void }} o
- * @returns {Promise<{ status: number | null, signal: string | null, stdout: string, stderr: string, error: Error | null, timedOut: boolean, interrupted: string | null }>}
+ * @returns {Promise<{ status: number | null, signal: string | null, stdout: string, stderr: string, error: Error | null, timedOut: boolean, interrupted: string | null, survivor: number | null }>}
  */
 export function runChild(command, argv, o) {
   return new Promise((done) => {
-    const result = { status: /** @type {number | null} */ (null), signal: /** @type {string | null} */ (null), stdout: "", stderr: "", error: /** @type {Error | null} */ (null), timedOut: false, interrupted: /** @type {string | null} */ (null) };
+    const result = { status: /** @type {number | null} */ (null), signal: /** @type {string | null} */ (null), stdout: "", stderr: "", error: /** @type {Error | null} */ (null), timedOut: false, interrupted: /** @type {string | null} */ (null), survivor: /** @type {number | null} */ (null) };
     if (o.trap.signal) { result.interrupted = o.trap.signal; done(result); return; }
     /** @type {import("node:child_process").ChildProcess} */
     let child;
@@ -317,7 +325,7 @@ export function runChild(command, argv, o) {
     // of the review is still running.
     child.on("exit", (status, signal) => {
       result.status = status; result.signal = signal;
-      reapGroup(child.pid).then(() => { reaped = true; if (closed) finish(); else grace = setTimeout(finish, 2000); });
+      reapGroup(child.pid).then((gone) => { if (!gone) result.survivor = child.pid ?? null; reaped = true; if (closed) finish(); else grace = setTimeout(finish, 2000); });
     });
     child.on("close", () => { closed = true; if (reaped) finish(); });
     child.stdin?.end(o.input);
@@ -410,6 +418,7 @@ async function review(args, out, err) {
   }
   const root = resolve(values.cwd ?? process.cwd());
   try { if (!statSync(root).isDirectory()) throw new Error("not a directory"); } catch { throw new ReviewUsageError(`${root} is not a directory`); }
+  if (!insideWorkTree(root)) throw new ReviewUsageError(`good-agent review needs a git working tree; ${root} is not inside one`);
   const { config } = loadConfig(root, { explicitPath: values.config, knownRuleIds: RULE_IDS });
   const prompt = /** @type {string} */ (values.prompt);
   if (!PROMPTS.includes(/** @type {any} */ (prompt))) throw new ReviewUsageError(`--prompt must be one of ${PROMPTS.join(", ")}`);
@@ -471,6 +480,9 @@ async function review(args, out, err) {
   let lock = null;
   /** @type {string | null} */
   let tmp = null;
+  // Set when the reviewer's process group outlived SIGKILL: the lock stays,
+  // with its recorded pgid, and acquireLock frees it once the group is gone.
+  let retainLock = false;
   try {
     lock = await acquireLock(reviews, reviewer, { wait: !values["no-wait"], deadline, aborted: () => trap.signal });
     const dir = join(reviews, repoSlug(root));
@@ -529,6 +541,10 @@ async function review(args, out, err) {
       digestAfter = treeDigest(root);
       ran = { status: result.status, timedOut: result.timedOut };
       logText = `$ ${reviewer} ${argv.map((a) => (a === "" || /\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}\n\n--- prompt ---\n${promptText}\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}\n`;
+      if (result.survivor) {
+        retainLock = true;
+        return fail("REVIEW_ERROR", `reviewer process group ${result.survivor} survived SIGKILL; the lock is retained until it exits`);
+      }
       if (digestBefore !== digestAfter) return fail("REVIEW_UNSAFE", "the tree changed during the review; the result is void, refile the round");
       if (result.interrupted) return fail("REVIEW_ERROR", `interrupted by ${result.interrupted}; ${reviewer} was killed`);
       if (result.timedOut) return fail("REVIEW_ERROR", `${reviewer} exceeded ${timeoutMinutes} minutes and was killed`);
@@ -567,7 +583,7 @@ async function review(args, out, err) {
       return fail("REVIEW_ERROR", error instanceof Error ? error.message : String(error));
     }
   } finally {
-    lock?.release();
+    if (!retainLock) lock?.release();
     trap.dispose();
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   }
