@@ -1,0 +1,676 @@
+# good-agent design
+
+Status: draft for review. Nothing here is implemented yet.
+Date of all document checks below: 2026-11-01.
+
+`@taprootio/good-agent` keeps AI coding-assistant instruction files DRY and
+inside what the tools actually load. It ships a **guard** (a CLI check for
+local runs, pre-commit hooks and CI) and a **skill** (a SKILL.md that teaches
+an assistant to set the files up and keep them that way).
+
+The rule it enforces: one canonical file, every tool reads it by import where
+the tool supports imports and by a short pointer where it does not, long
+material lives in linked docs, and nothing points at files that are gone.
+
+## 1. What the tools actually do
+
+Every rule below cites one of these facts. Claims the docs do not make are
+marked as such and are not used in rules.
+
+### Codex (OpenAI)
+
+Sources: the AGENTS.md guide at
+<https://developers.openai.com/codex/guides/agents-md> (redirects to
+`learn.chatgpt.com/docs/agent-configuration/agents-md`; same page), the
+config reference at <https://developers.openai.com/codex/config-reference>,
+and the loader source
+<https://github.com/openai/codex/blob/main/codex-rs/core/src/agents_md.rs>
+(read at commit `54201ea6`, 2026-11-01). The source was read because the two
+doc pages disagree on whether the limit is per file or combined.
+
+- **Discovery.** In `~/.codex` Codex reads `AGENTS.override.md` if present,
+  else `AGENTS.md` ("only the first non-empty file at this level"). Then,
+  "starting at the project root (typically the Git root), Codex walks down to
+  your current working directory. ... In each directory along the path, it
+  checks for `AGENTS.override.md`, then `AGENTS.md`, then any fallback names in
+  `project_doc_fallback_filenames`. Codex includes at most one file per
+  directory." Files are concatenated root first, "joining them with blank
+  lines." Directories below the cwd are not read.
+- **Fallback names.** Only `AGENTS.override.md`, `AGENTS.md` and the names in
+  the user's `project_doc_fallback_filenames` are considered. "Filenames not on
+  this list are ignored for instruction discovery." `CLAUDE.md` is not on it.
+  The fallback list is user config (`~/.codex/config.toml`), so a repo cannot
+  rely on it.
+- **Size limit.** `project_doc_max_bytes` is 32 KiB by default (the guide says
+  "32 KiB by default"; the source has `AGENTS_MD_MAX_BYTES = DEFAULT_PROJECT_DOC_MAX_BYTES // 32 KiB`).
+  The limit is a **combined budget** across the root-to-cwd chain, not per
+  file: `read_agents_md` keeps a `remaining` counter, subtracts each file's
+  bytes in chain order, and when a file is larger than what remains it
+  `data.truncate(remaining)` and logs "project doc exceeds remaining budget;
+  truncating". So the file that crosses the budget is cut mid-file and later
+  files in the chain load nothing. The global `~/.codex/AGENTS.md` does not
+  count against the budget (it is added before `remaining` is initialised).
+  No user-visible warning is documented; the guide's troubleshooting entry is
+  "Instructions truncated: Raise `project_doc_max_bytes` or split large files
+  across nested directories."
+- **No import syntax.** Neither page documents any include or `@path`
+  mechanism in AGENTS.md.
+- **Skills.** "Skills build on the open agent skills standard" (agentskills.io).
+  "For repositories, Codex scans `.agents/skills` in every directory from your
+  current working directory up to the repository root." Personal skills live
+  in `~/.agents/skills`. Codex "supports symlinked skill folders and follows the
+  symlink target." Source: <https://developers.openai.com/codex/build-skills>.
+
+### Claude Code (Anthropic)
+
+Sources: <https://code.claude.com/docs/en/memory>,
+<https://code.claude.com/docs/en/skills>,
+<https://code.claude.com/docs/en/commands>,
+<https://code.claude.com/docs/en/costs>.
+
+- **Loading.** Loaded at launch, broadest first: managed policy file, user
+  `~/.claude/CLAUDE.md`, project `./CLAUDE.md` or `./.claude/CLAUDE.md`, local
+  `./CLAUDE.local.md`, and the same files "from your current working directory
+  and every directory above it." Subdirectory `CLAUDE.md` files load "once
+  Claude reads, writes, or edits another file in that subdirectory."
+  `.claude/rules/*.md` without a `paths` front matter field load at launch
+  "with the same priority as `.claude/CLAUDE.md`"; with `paths` they load on
+  demand. "Block-level HTML comments ... are stripped before the content is
+  injected."
+- **Imports.** `@path/to/import` anywhere in the file. "Both relative and
+  absolute paths are allowed. Relative paths resolve relative to the file
+  containing the import, not the working directory." "Imported files can
+  recursively import other files, with a maximum depth of four hops." "Import
+  parsing skips Markdown code spans and fenced code blocks." A path in quotes
+  "isn't imported at all." Imports "don't reduce its context cost, because
+  imported files load together with the CLAUDE.md that imports them."
+  A Markdown link is not an import; nothing in the docs says Claude follows
+  links at launch.
+- **AGENTS.md.** "By default, Claude reads `AGENTS.md` only when you have no
+  `CLAUDE.md` in your working directory or above it." Requires "v2.1.277 or
+  later." It does not read `AGENTS.local.md`, `AGENTS.override.md` or
+  `.agents/`. The docs' recommended bridge for repos that keep both: "put an
+  `@AGENTS.md` import in a `CLAUDE.md` next to it." A symlink also works
+  except that "the Edit and Write tools refuse to write through a symlink."
+- **Size.** "Target under 200 lines per CLAUDE.md file. Longer files consume
+  more context and reduce adherence." "If one of your instruction files is
+  over the recommended length, you see a warning at startup and when you run
+  `/status`," and there is a warning when files "add up past a combined limit
+  at session start." Neither threshold number is documented. On-demand files
+  (subdirectory CLAUDE.md, path-scoped rules, their imports) are cut at
+  40,000 characters for a 200K context window. A file over 4 MiB is skipped.
+- **Skills.** Project skills live at `.claude/skills/<name>/SKILL.md` and are
+  also loaded from parent directories up to the repository root. Claude Code
+  "follow[s] the Agent Skills open standard" and "extends the standard with
+  additional features" (extra front matter such as `disable-model-invocation`,
+  `context`, `paths`). Outside Claude Code only the spec fields are allowed.
+  `.agents/skills` is not mentioned on the skills page, so Claude Code is not
+  documented to read it.
+- **`/doctor prompt-audit`.** "Claude looks for problems such as instructions
+  written for older models, references to files or commands that don't exist,
+  and files that contradict each other." Default scope: CLAUDE.md,
+  CLAUDE.local.md, AGENTS.md, plus rules, skills, commands, subagents and
+  output styles under `.claude/` and `~/.claude/`. It is an LLM review inside a
+  Claude Code session that proposes edits. `/doctor` itself also flags
+  "checked-in `CLAUDE.md` content Claude could derive from the codebase" and
+  local files that duplicate checked-in ones. It does not check Codex or
+  Copilot budgets, import resolution or cross-tool duplication, and it cannot
+  run in CI. good-agent covers that deterministic ground and hands the
+  semantic pass (contradictions, stale commands) to the skill, which tells
+  Claude users to run `prompt-audit`.
+
+### GitHub Copilot
+
+Sources:
+<https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions>,
+<https://docs.github.com/en/copilot/concepts/prompting/response-customization>,
+<https://docs.github.com/en/copilot/reference/custom-instructions-support>,
+<https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions>,
+<https://code.visualstudio.com/docs/copilot/customization/custom-instructions>,
+<https://code.visualstudio.com/docs/agent-customization/agent-skills>.
+
+- **Repository-wide file.** `.github/copilot-instructions.md`. Used by Chat on
+  GitHub.com, the cloud agent, code review, the IDE chats and the CLI.
+- **AGENTS.md.** "You can create one or more `AGENTS.md` files, stored anywhere
+  within the repository. When Copilot is working, the nearest `AGENTS.md` file
+  in the directory tree will take precedence." Alternatively "a single
+  `CLAUDE.md` or `GEMINI.md` file stored in the root." Read by the cloud agent,
+  code review, the CLI and VS Code chat. Copilot Chat on GitHub.com is not in
+  the support table for AGENTS.md, so the repo-wide file is the only thing
+  that surface is documented to read. When a path-specific file and the
+  repo-wide file both match, "the instructions from both files are used."
+- **Path-specific files.** `.github/instructions/NAME.instructions.md` with a
+  front matter block containing `applyTo` in glob syntax; several globs are
+  comma separated; `**` matches everything. Optional `excludeAgent` with the
+  values `code-review` or `cloud-agent`. Honoured by code review and the cloud
+  agent on GitHub.com, and by IDE chats and the CLI. VS Code adds `name` and
+  `description` keys.
+- **Size.** No byte or character cap is documented. Guidance only:
+  instructions "should be short, self-contained statements" and are "sent with
+  every chat message."
+- **Imports.** The GitHub-hosted surfaces document no include syntax. The
+  Copilot **CLI** does: "In `.github/copilot-instructions.md`, `AGENTS.md`, or
+  `CLAUDE.md`, use `@` followed by a relative path to include another file,"
+  and "File references are not expanded in `GEMINI.md` or `*.instructions.md`
+  files." So a `@AGENTS.md` line in the Copilot file helps the CLI only; code
+  review and the cloud agent see it as text. VS Code says relative Markdown
+  links in instruction files resolve from the file and can be followed.
+- **Skills.** VS Code documents project skill locations `.github/skills/`,
+  `.claude/skills/` and `.agents/skills/`, and personal `~/.copilot/skills/`,
+  `~/.claude/skills/`, `~/.agents/skills/`. GitHub says code review "reads
+  repository custom instructions, agent instructions, and agent skills from
+  the head branch."
+
+### Agent Skills (the open format)
+
+Sources: <https://agentskills.io/specification>,
+<https://github.com/agentskills/agentskills/blob/main/docs/client-implementation/adding-skills-support.mdx>.
+
+- A skill is a directory with `SKILL.md` plus optional `scripts/`,
+  `references/`, `assets/`. Front matter: `name` (required, 1 to 64 chars,
+  lowercase letters, digits and hyphens, "must match the parent directory
+  name"), `description` (required, up to 1024 chars), optional `license`,
+  `compatibility`, `metadata`, `allowed-tools`. The reference validator
+  rejects unknown keys, so Claude-only keys make a skill fail validation
+  elsewhere. Body guidance: "keep your main `SKILL.md` under 500 lines."
+- Location is not part of the spec. The client guide says "the
+  `.agents/skills/` paths have emerged as a widely-adopted convention for
+  cross-client skill sharing," and that some clients also scan
+  `.claude/skills/` for compatibility.
+- Consequence for good-agent: one `SKILL.md` with spec-only front matter can
+  serve Codex (`.agents/skills`), Copilot (`.agents/skills` or `.claude/skills`)
+  and Claude Code (`.claude/skills`). Claude Code needs its own copy or a
+  symlink because the docs do not list `.agents/skills` for it.
+
+### npm names
+
+Checked against `registry.npmjs.org` on 2026-11-01.
+
+- `@taprootio/good-agent`: 404, free. The `@taprootio` scope already publishes
+  `@taprootio/trellis`.
+- `good-agent` (unscoped): one version (0.10.15) published in October 2019 and
+  unpublished by npm support in February 2020. The record still exists with no
+  versions. It is probably claimable, but a scoped name avoids the question
+  and matches Trellis. The CLI binary is still `good-agent`.
+- Nearby packages worth knowing about: `agents-md-lint` (an AGENTS.md linter
+  with scoring and autofix) and `agents-lint` ("detect stale references and
+  context rot in AGENTS.md"). Both are single-file AGENTS.md linters. Neither
+  models what each tool loads (Codex's combined budget, Claude's imports,
+  Copilot's `applyTo`) or the one-canonical-file layout, which is the point of
+  good-agent. The README should say that in one line.
+
+## 2. The model good-agent enforces
+
+1. **One canonical file**, named `AGENTS.md` unless configured otherwise.
+   Codex reads it natively, Copilot reads it natively, Claude Code reads it
+   when there is no CLAUDE.md or through an import. No other name has that
+   reach.
+2. **Thin tool files.** `CLAUDE.md` is `@AGENTS.md` plus Claude-only notes.
+   `.github/copilot-instructions.md` is a pointer plus Copilot-only notes
+   because Copilot has no import on the surfaces that matter. Per-language
+   `.instructions.md` files add deltas for a file type and never restate the
+   canonical file.
+3. **Long material in linked docs.** Anything reference-shaped (runbooks,
+   architecture detail, decision records) lives under `docs/` and is linked
+   by path. Links are not loaded at launch by any tool, so they cost nothing
+   until an assistant opens them. Imports do cost context, so `@` is for the
+   canonical file only.
+4. **Budgets are per tool, and the tools disagree.** Codex: 32 KiB combined
+   along the directory chain. Claude: about 200 lines loaded at launch
+   including imports. Copilot: no hard limit. The guard reports against each
+   tool's own number.
+5. **Nothing points at what is gone.** Links, imports, repo paths and npm
+   scripts named in instruction files must exist.
+
+### How the canonical file is detected (zero config)
+
+The canonical file is the instruction file that the other instruction files
+point at. Concretely: collect every instruction file (section 4.1), count
+inbound references from the other instruction files (Markdown links and
+`@` imports, resolved relative to the referencing file, with a leading `/`
+treated as repo-root), and pick the file with the most inbound references.
+Ties go to `AGENTS.md`. If no file references another and there is exactly one
+root-level candidate, that is canonical. If `AGENTS.md` exists and nothing
+else resolves, it wins. Otherwise `canonical/detect` fails and asks for the
+`canonical` config key.
+
+On the three real repos this picks `AGENTS.md`, `AI_GUIDELINES.md` (three
+inbound) and `AGENTS.md` without configuration. On Trellis, which has only
+`AGENTS.md`, it picks that.
+
+## 3. Rule set
+
+Each rule has an id (`area/name`), a default severity (`error` fails the
+check, `warn` is reported but passes, `info` is shown only with `--verbose`),
+the fact it rests on, and the decision on the candidate list from the brief.
+"v0.1" marks what ships first; the rest is section 10.
+
+### Kept
+
+| Rule | Severity | Ships | What it checks |
+| --- | --- | --- | --- |
+| `canonical/detect` | error | v0.1 | A canonical file could be determined (section 2). |
+| `canonical/name` | warn | v0.1 | The canonical file is named `AGENTS.md`. Otherwise Codex (only `AGENTS.md` and user-configured fallbacks) and Copilot (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) see only a written pointer. Fix: rename and keep `CLAUDE.md` as `@AGENTS.md`. |
+| `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory (one file per directory, override preferred) totals at most `limits.codexBytes` (32,768). The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load. Source: `agents_md.rs` truncation loop. |
+| `claude/import-canonical` | error | v0.1 | If `CLAUDE.md` (or `.claude/CLAUDE.md`) exists and the canonical file is a different file, it contains an `@<canonical>` import outside code spans. A Markdown link is not enough. If there is no `CLAUDE.md` and the canonical file is not `AGENTS.md`, that is an error too (Claude loads nothing). If there is no `CLAUDE.md` and the canonical file is `AGENTS.md`, that is `info`: Claude Code 2.1.277+ reads it, older versions do not. |
+| `claude/size` | warn | v0.1 | Lines Claude Code loads at launch: `CLAUDE.md` + `CLAUDE.local.md` + `.claude/rules/*.md` without `paths`, with `@` imports expanded to four hops, each file counted once. Warn above `limits.claudeLines` (200). Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding lists each contributing file and its line count. |
+| `links/broken` | error | v0.1 | Every relative Markdown link and every `@` import in an instruction file resolves to an existing path. Fragments are stripped; `http(s)`, `mailto` and `#` anchors are skipped; `~/` and absolute imports are skipped (they are outside the repo). Imports are resolved relative to the containing file, as the Claude docs say. A broken import is called out separately because Claude "silently loads nothing for it." |
+| `claude/import-depth` | warn | v0.1 | An import chain deeper than four hops; the docs say files past that are not loaded. Cheap to check while resolving `links/broken`. |
+| `copilot/applyto` | error | v0.1 | Every `.github/instructions/*.instructions.md` starts with front matter containing `applyTo`; `excludeAgent`, if present, is `code-review` or `cloud-agent`. Without `applyTo` Copilot never attaches the file. |
+| `dry/copied-canonical` | error | v0.1 | A tool file whose substantive lines (normalised whitespace, at least 20 chars, not headings) are at least 50% identical to lines in the canonical file, with a floor of five lines. This is the "CLAUDE.md copies AGENTS.md instead of importing it" case. Fix: replace with `@<canonical>` or a pointer. |
+| `dry/duplicate-block` | warn | v0.2 | An identical paragraph or list item (60+ chars after whitespace normalisation) in two instruction files. Pointer sentences (blocks that link to or import the canonical file) are exempt because they are supposed to repeat. Suppressed for any file pair that `dry/copied-canonical` already reported, so a wholesale copy is one finding, not twenty. |
+| `copilot/pointer-thin` | warn | v0.2 | `.github/copilot-instructions.md` larger than `limits.pointerBytes` (2,048) when it is not the canonical file. Copilot reads the canonical `AGENTS.md` natively on every surface except GitHub.com Chat, and has no import, so anything beyond a pointer here is a second copy. |
+| `refs/missing-path` | warn | v0.2 | A backtick-quoted path in an instruction file that contains a `/`, whose first segment is a real top-level directory of the repo, and that does not exist. The first-segment test is what keeps this quiet: `Taproot.Domain/Commands/CommandHandler.cs` (relative to a service folder), `completed/index.md` and `TRxxxxx.md` are skipped, and so are paths into ignored directories such as `node_modules/`. Placeholders containing `<`, `*`, `{` or whitespace are skipped. |
+| `refs/missing-script` | warn | v0.2 | `npm run <name>` where `<name>` is not a script in any `package.json` in the repo (outside ignored directories). Checking every package.json is what makes this quiet in a monorepo: Taproot's `npm run typecheck` lives in `ux/package.json`. |
+
+### Cut
+
+| Candidate | Why |
+| --- | --- |
+| Contradictions between a delta file and the canonical file | Not feasible without a model. The real case (the proto delta said every RPC needs `google.api.http`; AGENTS.md said internal RPCs must omit it) is two correct-looking sentences about the same identifier. A keyword-overlap heuristic ("both files mention `google.api.http`, check they agree") produces a review prompt, not a finding, and would fire on every delta file that correctly cross-references the canonical one. This goes to the skill's audit procedure (section 5), which also points Claude users at `/doctor prompt-audit`, whose documented scope includes "files that contradict each other." |
+| Per-tool size limit for Copilot | No limit is documented. A rule with an invented number would break the "every rationale cites a doc" constraint. |
+| "Pointer files where an import is supported" as a separate rule | This is `claude/import-canonical`. For Copilot the GitHub-hosted surfaces have no import, so the pointer is correct there; the CLI-only `@` include is not worth a rule because it would make code review and the cloud agent see a stray `@AGENTS.md` line. |
+| Claude `claudeMdExcludes`, managed policy files, `~/.claude` | User and machine state, not repo state. Out of scope. |
+
+### Added after reading the repos
+
+- `canonical/name` (above). taproot-controls shows the pattern: a canonical
+  `AI_GUIDELINES.md` means Codex sees only the Trellis block and Tilt notes in
+  `AGENTS.md` plus a sentence saying to read another file.
+- `refs/missing-script` (above). The taproot AGENTS.md names six `npm run`
+  scripts; all exist somewhere in the monorepo, which is exactly why the rule
+  has to look at every package.json.
+- Generated blocks. taproot-controls' `AGENTS.md` carries a Trellis-generated
+  block between `<!-- BEGIN TRELLIS -->` and `<!-- END TRELLIS -->`. The guard
+  treats text between `<!-- BEGIN X -->` / `<!-- END X -->` markers as
+  generated: findings inside it get a "generated by X; fix the generator" note,
+  and `dry/*` rules do not count a generated block against the file. Not a
+  rule, a parsing behaviour.
+
+### Noise controls that are part of the design
+
+- Code spans and fenced blocks are blanked before link, import and reference
+  parsing, matching how Claude parses imports.
+- `node_modules`, `.git`, `coverage`, `dist`, `build`, `public`, `.next`,
+  `out` and anything in `ignore` are skipped both when discovering instruction
+  files and when validating referenced paths.
+- A file reported by `dry/copied-canonical` is not also reported block by
+  block.
+- `info` findings are hidden unless `--verbose` or `--json`.
+
+## 4. CLI
+
+### 4.1 Files it considers instruction files
+
+At any depth unless ignored: `AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`,
+`CLAUDE.local.md`, `.claude/CLAUDE.md`, `.claude/rules/**/*.md`, `GEMINI.md`.
+At the root only: `.github/copilot-instructions.md`,
+`.github/instructions/**/*.instructions.md`. Plus the configured `canonical`
+file and any `extraFiles` globs. `AI_GUIDELINES.md` is recognised at the root
+as a known alternative name so detection works on repos like taproot-controls
+without config.
+
+### 4.2 Commands
+
+```
+good-agent check [options] [path...]
+    Run the rules. With paths, run only when at least one path is an
+    instruction file or a link target of one (for verify-changed style
+    scripts); otherwise exit 0 immediately with "nothing to check".
+
+good-agent inspect [--json]
+    What each tool loads: the detected canonical file, every instruction
+    file with bytes and lines, the Codex chain and budget per directory,
+    the Claude launch set with imports expanded. No findings, no exit 1.
+    This is the screenshot for the article.
+
+good-agent explain <rule>
+    The rule's rationale, the fix, and the doc URLs.
+
+good-agent rules
+    List rules with default severity and whether they are on.
+
+good-agent init [--skill] [--config] [--hook] [--ci]
+    --skill writes skill/good-agent/SKILL.md into .agents/skills/good-agent/
+    and .claude/skills/good-agent/ (two copies, both marked generated).
+    --config writes a commented good-agent.config.json with defaults.
+    --hook and --ci print the snippets from section 6 (they do not edit
+    .git/hooks or workflows).
+```
+
+Options for `check`: `--json`, `--verbose` (show `info`), `--strict` (warnings
+fail), `--config <file>`, `--cwd <dir>`, `--rule <id>` (repeatable, run only
+these), `--no-rule <id>` (repeatable), `--quiet` (summary line only),
+`--no-color`.
+
+### 4.3 Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | No `error` findings (warnings and info allowed; with `--strict`, no warnings either). |
+| 1 | At least one failing finding. |
+| 2 | Usage or config error (unknown flag, unreadable config, unknown rule id). |
+| 3 | Internal error (stack trace printed; please report). |
+
+### 4.4 Human output
+
+```
+good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
+
+✖ AGENTS.md  codex/size-budget
+  Codex loads at most 32,768 bytes of AGENTS.md content along the chain
+  AGENTS.md (34,348 bytes). It truncates AGENTS.md at byte 32,768 (line 565,
+  inside "## Area-specific architecture"); the last 1,580 bytes never reach
+  Codex.
+  fix: Move long sections into docs/ and link them from AGENTS.md, or split
+  guidance into nested AGENTS.md files closer to the code they govern.
+  docs: https://developers.openai.com/codex/guides/agents-md
+
+▲ CLAUDE.md  claude/size
+  Claude Code loads 619 lines at launch (CLAUDE.md 29 + AGENTS.md 590 via
+  @import); the docs recommend under 200 lines per file because longer files
+  reduce adherence.
+  fix: Move reference material into docs/ linked by path (not @-imported), or
+  into skills and path-scoped .claude/rules that load on demand.
+  docs: https://code.claude.com/docs/en/memory
+
+1 error, 1 warning  (exit 1)
+```
+
+Every finding has four parts in a fixed order: file and rule, what is wrong
+with the numbers, the fix, the doc. The file line is first so editors and
+`grep` can pick it up.
+
+### 4.5 JSON output (`--json`)
+
+```json
+{
+  "version": "0.1.0",
+  "root": "/Users/jereme/src/taproot",
+  "canonical": "AGENTS.md",
+  "files": [
+    { "path": "AGENTS.md", "bytes": 34348, "lines": 590, "readBy": ["codex", "copilot", "claude:import"] },
+    { "path": "CLAUDE.md", "bytes": 1575, "lines": 29, "readBy": ["claude", "copilot"] }
+  ],
+  "findings": [
+    {
+      "rule": "codex/size-budget",
+      "severity": "error",
+      "file": "AGENTS.md",
+      "line": 565,
+      "message": "Codex loads at most 32,768 bytes ... the last 1,580 bytes never reach Codex.",
+      "fix": "Move long sections into docs/ ...",
+      "docs": ["https://developers.openai.com/codex/guides/agents-md"],
+      "data": { "bytes": 34348, "limit": 32768, "chain": ["AGENTS.md"], "truncatedAt": 32768 }
+    }
+  ],
+  "summary": { "errors": 1, "warnings": 1, "info": 0, "exitCode": 1 }
+}
+```
+
+`data` is rule-specific and documented per rule. Everything else is stable
+across minor versions.
+
+### 4.6 Config file
+
+`good-agent.config.json` at the repo root (same shape as Trellis's
+`backlog.config.json`: one JSON file, no JS config, no cosmiconfig search).
+Everything is optional; the file is optional.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/taprootio/good-agent/main/schema/config.json",
+  "version": 1,
+  "canonical": "AGENTS.md",
+  "ignore": ["vendor/**", "examples/**"],
+  "extraFiles": [".cursor/rules/*.md"],
+  "limits": {
+    "codexBytes": 32768,
+    "claudeLines": 200,
+    "pointerBytes": 2048
+  },
+  "rules": {
+    "canonical/name": "off",
+    "claude/size": "info",
+    "dry/duplicate-block": { "severity": "warn", "minChars": 80 }
+  }
+}
+```
+
+A rule value is a severity string (`error`, `warn`, `info`, `off`) or an
+object with `severity` and rule-specific options. `limits` are the numbers
+that come from tool docs; changing them is how a team that sets
+`project_doc_max_bytes = 65536` in every `~/.codex/config.toml` tells the
+guard so. `version` lets a future schema change be detected and explained
+instead of silently misread.
+
+## 5. The skill
+
+### 5.1 Skill or playbook
+
+Trellis ships playbooks: Markdown procedures that `AGENTS.md` links to and
+that a human can also follow. A skill is the same kind of document with front
+matter that lets a tool discover it and load it on demand. The difference is
+who starts it. A playbook is invoked by the repo's own workflow ("to close a
+task, follow `trellis/playbooks/work-task.md`"). A skill is picked by the
+assistant from its description when the user's request matches ("set up
+instruction files for Codex", "why is Codex ignoring the end of AGENTS.md").
+
+Instruction hygiene is the second kind: nobody schedules it, it comes up when
+someone touches the files. So good-agent ships a **skill**, written so it also
+reads as a playbook (plain headings, numbered procedures, no tool-specific
+front matter). A repo that prefers the playbook convention can link to the
+same file from `AGENTS.md`.
+
+### 5.2 `SKILL.md`
+
+```
+---
+name: good-agent
+description: Set up and maintain AI assistant instruction files (AGENTS.md,
+  CLAUDE.md, Copilot instructions) so one canonical file serves every tool,
+  stays inside each tool's limits, and points only at files that exist. Use
+  when creating or editing AGENTS.md, CLAUDE.md or .github/copilot-instructions.md,
+  when `good-agent check` fails, or when asked to audit agent instructions.
+license: MIT
+metadata:
+  package: "@taprootio/good-agent"
+---
+```
+
+Spec fields only, so the Agent Skills reference validator, Codex and Copilot
+all accept it. The `name` matches the directory. Target length under 200
+lines; the spec ceiling is 500.
+
+Body, in order:
+
+1. **The layout** (section 2 in four bullets) and why: what each tool loads,
+   with the numbers.
+2. **Set up a repo**: create or rename to `AGENTS.md`; write `CLAUDE.md` as
+   `@AGENTS.md` plus Claude-only notes; write
+   `.github/copilot-instructions.md` as a pointer; add `.instructions.md`
+   deltas with `applyTo`; move anything reference-shaped to `docs/` and link
+   it; run `npx @taprootio/good-agent check`.
+3. **Write rules that survive**: one rule per bullet, state the behaviour and
+   the exception, name the check that enforces it when there is one, never
+   restate the canonical file in a delta file (cross-reference the section
+   instead), keep paths repo-relative.
+4. **Audit** (the part the guard cannot do):
+   - Run `good-agent check --json` and fix every error first.
+   - For each delta file, for each rule, find the canonical section on the
+     same topic and read both; if they disagree, the canonical file wins and
+     the delta is rewritten as an addition ("in addition to AGENTS.md
+     §Protobuf: ...") or deleted. The proto `google.api.http` drift is the
+     worked example.
+   - For each command in the files, run it with `--help` or confirm the
+     script exists.
+   - Look for paraphrased duplicates (same rule, different words) between
+     files; keep one.
+   - In Claude Code, also run `/doctor prompt-audit`, which covers older-model
+     phrasing, missing files and contradictions for Claude's own files.
+   - Report findings as a list with file, line and proposed edit; do not
+     apply edits the user has not seen.
+5. **Fix recipes** keyed by rule id, one paragraph each, mirroring
+   `good-agent explain`.
+6. **Do not**: copy the canonical file into a tool file; raise a tool's limit
+   in user config as the fix for a repo problem; link with `@` to anything
+   but the canonical file; put rules in a generated block.
+
+### 5.3 Installation
+
+Shipped in the package at `skill/good-agent/SKILL.md` and listed in `files`.
+`good-agent init --skill` copies it to `.agents/skills/good-agent/SKILL.md`
+(Codex, Copilot) and `.claude/skills/good-agent/SKILL.md` (Claude Code,
+Copilot). Both copies start with an HTML comment marking them generated and
+naming the command to refresh them. Two copies rather than a symlink because
+the Claude docs say Edit and Write refuse to write through symlinks, and
+Windows checkouts turn symlinks into text files. A follow-up rule
+(`skills/copies-in-sync`, v0.2) can verify the two copies match.
+
+Personal install is the same two paths under `~`. Plugin or marketplace
+packaging for Claude Code is not in scope.
+
+## 6. Integration
+
+### Pre-commit
+
+A plain git hook, no husky (Trellis has none either):
+
+```sh
+#!/bin/sh
+# .githooks/pre-commit  (git config core.hooksPath .githooks)
+changed=$(git diff --cached --name-only)
+[ -n "$changed" ] && npx --no-install @taprootio/good-agent check $changed
+```
+
+`check` with paths exits 0 at once when none of them is an instruction file or
+a link target of one, so the hook costs nothing on ordinary commits. With
+`lint-staged` the equivalent entry is
+`"*.md": "good-agent check"`.
+
+### GitHub Actions
+
+```yaml
+name: agent-instructions
+on: [pull_request, push]
+jobs:
+  good-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npx @taprootio/good-agent@0.1 check --json > good-agent.json || true
+      - run: npx @taprootio/good-agent@0.1 check
+```
+
+The first run keeps the JSON as a build artefact or for a PR comment step; the
+second fails the job. Pinning the major in `npx` is what keeps a new rule from
+breaking the build (section 8).
+
+### Taproot's `verify-changed.sh`
+
+That script already collects changed paths and picks checks by pattern. The
+addition is one step that hands it the paths and lets `check` decide:
+
+```sh
+run_step "agent instructions" npx --no-install @taprootio/good-agent check "${paths[@]}"
+```
+
+Because `check` resolves link targets, deleting `docs/architecture/foo.md`
+that `AGENTS.md` links to triggers the step even though no instruction file
+changed. `--plan` mode gets the step for free through `run_step`.
+
+## 7. Testing the guard
+
+Match Trellis: `node --test`, no test framework, fixtures as real directory
+trees.
+
+- `test/fixtures/<rule>/<case>/` holds a tiny repo (a few Markdown files, a
+  `package.json` when the rule needs one) and `expected.json` listing the
+  findings `check --json` must produce for that fixture, as
+  `{rule, file, line?}` triples plus the expected exit code. Each rule gets at
+  least one `pass` and one `fail` case; `codex/size-budget` gets a nested
+  chain case and an override case; `claude/import-canonical` gets the
+  Markdown-link case, the code-span case (`` `@AGENTS.md` `` must not count)
+  and the no-CLAUDE.md cases; `dry/copied-canonical` gets a wholesale copy
+  and checks that no `dry/duplicate-block` finding accompanies it.
+- `test/cli.test.mjs` runs the bin as a child process for exit codes 0, 1
+  and 2, `--json` shape, `--strict`, `--rule`, and the path-filtered
+  "nothing to check" fast exit.
+- `test/discover.test.mjs` covers canonical detection on the three real
+  layouts reproduced as fixtures (Taproot-like, taproot-controls-like, site-
+  like) plus Trellis-like (single file) and empty.
+- `scripts/corpus.mjs` runs `check --json` against sibling checkouts
+  (`../taproot`, `../taproot-controls`, `../www.jeremeevans.com`) when they
+  exist and diffs against `test/corpus/*.expected.json`. It is a local
+  regression net, skipped in CI because the repos are private.
+- Human output is snapshot-tested for the README example so the screenshot
+  and the code agree.
+
+## 8. Versioning and release
+
+- Semver. Rule ids, severities, the JSON shape and the config schema are the
+  public API.
+- A **new rule** ships in a minor version at `warn` or `info`, never `error`,
+  and is listed in the changelog with its doc citation. Promotion to `error`
+  happens in the next major. So a project on `@0.x`/`^1` never starts failing
+  because a rule appeared.
+- A **limit value** changes when a tool's docs change (say Codex moves to
+  64 KiB). That is a minor version with the date and link in the changelog,
+  because it can turn a failing repo green or a green repo red.
+- Removing or renaming a rule is a major. Unknown rule ids in config are an
+  exit 2 so a rename is noticed.
+- Each rule records `since` (the version it appeared in); `good-agent rules`
+  prints it.
+- Release mechanics copy Trellis's `release.yml`: the version bump in
+  `package.json` on `main` is the release, npm trusted publishing with OIDC,
+  tag and GitHub Release created in the same job, prereleases to the `next`
+  dist-tag.
+
+## 9. Package layout, language, dependencies, license
+
+- **Layout** mirrors Trellis: `scripts/good-agent.mjs` (the bin, a thin
+  dispatcher), `src/cli.mjs`, `src/config.mjs`, `src/discover.mjs`,
+  `src/markdown.mjs` (code-span stripping, links, imports, front matter,
+  generated markers), `src/rules/<area>/<name>.mjs` (one file per rule
+  exporting `{ id, severity, since, docs, run(ctx) }`), `src/report.mjs`
+  (human and JSON), `skill/good-agent/SKILL.md`, `schema/config.json`,
+  `test/`, `docs/`.
+- **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
+  Trellis. No build step, so the published files are the tested files and
+  `npx` runs them directly. Type checking runs with `tsc --noEmit` from a
+  single exact-pinned `typescript` devDependency; it is dev-only, from a
+  single large maintainer, and can be dropped if Jereme would rather match
+  Trellis's zero-devDependency state (open question).
+- **Runtime dependencies: none.** Everything needed is in Node 22:
+  `node:fs`, `node:path`, `node:util.parseArgs` for flags, `node:test` for
+  tests. The directory walk is hand-written (`fs.glob` is still marked
+  experimental in the Node 22 line, and the walk also has to honour the
+  ignore list). Front matter is the flat `key: value` subset that Copilot
+  and the skills spec use; no YAML parser. Glob matching for `ignore` is a
+  small translator to `RegExp` covering `*`, `**` and `?`.
+- **Engines**: `node >= 22`.
+- **License: MIT.** Trellis is MIT under "Taproot IO, LLC"; the article's
+  readers expect MIT on a small CLI; Apache-2.0's patent clause buys nothing
+  for a Markdown checker. Same copyright holder as Trellis.
+
+## 10. Scope
+
+**v0.1** (the article's five-minute setup):
+`check`, `explain`, `rules`, `inspect`, `init --skill`; rules
+`canonical/detect`, `canonical/name`, `codex/size-budget`,
+`claude/import-canonical`, `claude/import-depth`, `claude/size`,
+`links/broken`, `copilot/applyto`, `dry/copied-canonical`; config file;
+`--json`; the skill; hook and Actions snippets; fixtures and corpus script;
+Trellis-style release.
+
+**v0.2**: `dry/duplicate-block`, `copilot/pointer-thin`, `refs/missing-path`,
+`refs/missing-script`, `skills/copies-in-sync`, `init --config/--hook/--ci`,
+generated-block awareness in findings, `GEMINI.md` and `.cursor/rules` as
+instruction files once their docs are checked the same way.
+
+**Later or never**: contradiction detection (skill only), autofix (`--fix`
+for `claude/import-canonical` is tempting and safe; everything else edits
+prose), an MCP server (Trellis has one; nothing here needs it), per-tool
+"what would this tool see" rendering beyond `inspect`.
