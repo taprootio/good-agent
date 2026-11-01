@@ -346,8 +346,11 @@ export async function acquireLock(root, reviewer, options) {
       // waiter then sees a live owner).
       const publish = guardWait(guard, options.wait ? Math.max(0, Math.min(5000, options.deadline - Date.now())) : 200);
       if (!publish) {
+        // Do not unlink the empty lock here: without the guard, nothing says it is
+        // still ours, and a waiter may have replaced it with a live one by now. It
+        // stays for ordinary stale reclamation (an unreadable lock is taken over
+        // after five seconds).
         closeSync(fd);
-        try { const now = statSync(path); if (now.ino === first.ino && now.dev === first.dev) unlinkSync(path); } catch { /* not ours any more */ }
         const message = `the ${reviewer} lock takeover guard ${guard} is held by another process; try again`;
         if (!options.wait) throw new ReviewUsageError(message);
         throw new Error(message);

@@ -1140,12 +1140,14 @@ test("a takeover guard left by a dead process is reclaimed at once; one held by 
     rmSync(join(reviews, "record.txt"), { force: true });
     res = review([...args, "--no-wait"], { root: r.root, reviews });
     assert.equal(res.status, 2, res.stderr); assert.match(res.stderr, /takeover guard .* is held by another process/);
-    assert.ok(!existsSync(lock), "the creator removed its empty lock");
+    assert.ok(existsSync(lock) && readFileSync(lock, "utf8") === "", "the creator leaves its empty lock for stale reclamation instead of unlinking it unguarded");
+    rmSync(lock);
     assert.ok(!res.record.includes("ARGV:exec"));
     // An unreadable guard is reclaimed only after 30 seconds.
     writeFileSync(guard, "");
     res = review([...args, "--no-wait"], { root: r.root, reviews });
     assert.equal(res.status, 2, res.stderr);
+    rmSync(lock, { force: true }); // the creator that gave up left its empty lock
     utimesSync(guard, old, old);
     res = review([...args, "--no-wait"], { root: r.root, reviews });
     assert.equal(res.status, 0, res.stderr);
@@ -1198,5 +1200,49 @@ test("two runners reclaiming one dead guard: only one rename wins, a fresh guard
     assert.equal(readFileSync(started, "utf8").trim().split("\n").length, 2, "both reviews ran, one after the other");
     assert.ok(!existsSync(lock) && !existsSync(guard), "lock and guard released");
     assert.deepEqual(readdirSync(reviews).filter((n) => n.includes(".reclaim-")), [], "no renamed guard files left behind");
+  } finally { r.cleanup(); }
+});
+
+test("a creator that cannot get the guard never unlinks its empty lock, so a waiter's live lock is safe", async () => {
+  const r = repo();
+  const reviews = scratch();
+  const pauseA = scratch("good-agent-pause-a-");
+  const holdB = scratch("good-agent-hold-b-");
+  const started = join(reviews, "started.txt");
+  try {
+    const lock = join(reviews, "codex.lock");
+    const args = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    const base = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_STARTED_FILE: started, NODE_TEST_CONTEXT: "child-v8" };
+    /** @param {string[]} extraArgs @param {Record<string, string>} extra */
+    const run = (extraArgs, extra) => {
+      const child = spawn(process.execPath, [BIN, "review", ...args, ...extraArgs], { cwd: r.root, env: { ...base, ...extra } });
+      let stderr = "";
+      child.stderr.on("data", (d) => { stderr += d; });
+      return { child, err: () => stderr, done: new Promise((resolveDone) => child.on("close", resolveDone)) };
+    };
+    // A creates its empty lock and pauses; the lock then ages until it looks abandoned.
+    const a = run(["--no-wait"], { GOOD_AGENT_TEST_PAUSE_LOCK: pauseA });
+    await waitFor(() => existsSync(join(pauseA, "paused")));
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    // B takes the takeover guard to reclaim it and stops while holding the guard.
+    const b = run([], { GOOD_AGENT_TEST_PAUSE_HOLD: holdB, FAKE_SLEEP: "3" });
+    await waitFor(() => existsSync(join(holdB, "paused")));
+    // A resumes, cannot get the guard, and gives up (--no-wait: exit 2) without unlinking anything.
+    writeFileSync(join(pauseA, "resume"), "");
+    assert.equal(await a.done, 2, a.err());
+    assert.match(a.err(), /takeover guard .* is held by another process/);
+    assert.ok(existsSync(lock), "A left the empty lock where it was");
+    // B resumes: it reclaims the abandoned empty lock, publishes its own and starts reviewing.
+    writeFileSync(join(holdB, "resume"), "");
+    await waitFor(() => existsSync(started) && lockPgid(reviews, "codex") !== null);
+    const live = JSON.parse(readFileSync(lock, "utf8"));
+    assert.equal(live.pid, b.child.pid); assert.equal(typeof live.token, "string");
+    // A third review waits on the live lock instead of starting beside it.
+    const third = review([...args, "--no-wait"], { root: r.root, reviews });
+    assert.equal(third.status, 2, third.stderr); assert.match(third.stderr, /another codex review is running/);
+    assert.deepEqual(JSON.parse(readFileSync(lock, "utf8")), live, "the live lock was not touched");
+    assert.equal(await b.done, 0, b.err());
+    assert.equal(readFileSync(started, "utf8").trim().split("\n").length, 1, "only B ever started a reviewer");
   } finally { r.cleanup(); }
 });

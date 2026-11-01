@@ -97,8 +97,11 @@ the message names the log).
    succeeds (the others loop back and re-evaluate), and a runner never
    deletes a fresh guard created after its judgement. If what it moved is
    not stale after all, it is linked straight back and left alone. A creator that cannot
-   get the guard (5 seconds, or 200 ms with `--no-wait`) removes its empty
-   lock and gives up. Waiting counts against the
+   get the guard (5 seconds, or 200 ms with `--no-wait`) closes its
+   descriptor and gives up (exit 3, or 2 with `--no-wait`) but never unlinks
+   its empty lock: without the guard nothing says the file is still its own,
+   so it is left for ordinary stale reclamation (an unreadable lock is taken
+   over after five seconds). Waiting counts against the
    timeout; `--no-wait` exits 2 instead. Each acquisition has an identity, a
    random token in the lock's content plus the file's inode. A runner paused
    between creating the lock and writing it can be judged abandoned and
