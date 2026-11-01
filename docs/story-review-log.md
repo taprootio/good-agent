@@ -30,8 +30,10 @@ first merge.
 | 2 | 7354c57 | 2 | 4 | 0 | bee9c11 | |
 | 3 | bee9c11 | 2 | 2 | 0 | e2d2462 | internal focused pass (15 follow-ups, fixed in 8cbfc79) |
 | 4 | e2d2462 | 2 | 1 | 0 | 781d570 | |
-| 5 | 781d570 | 1 | 1 | 0 | c3d9db4 | internal focused pass (see below) |
-| 6 | c3d9db4 | | | | | |
+| 5 | 781d570 | 1 | 1 | 0 | c3d9db4 | internal focused pass (0 blockers, 0 warnings, 5 nits, fixed in d0a5d06) |
+| 6 | c3d9db4 | 0 | 2 | 0 | c6a54c6 | |
+| 7 | c6a54c6 | 0 | 2 | 0 | d0a5d06 | |
+| 8 | d0a5d06 | 0 | 0 | 0 | clean | |
 
 The external rounds caught what the internal ones had not: the review
 prompts demanded a fenced array while the runner demanded a schema object;
@@ -45,4 +47,12 @@ discovery "matches Codex" was false.
 
 Every blocker and warning was confirmed against the cited file and fixed.
 Nits were fixed by default. No finding was waived. The tree digest was
-unchanged after every external round.
+unchanged after every external round. The loop closed on 2026-11-01 with
+the internal confirmation clean and external round 8 returning `[]` on
+commit d0a5d06; the stories at that commit are the agreed scope of work.
+
+Two findings were overturned rather than applied as suggested, with the
+loader source as the evidence: round 6 asked that empty `AGENTS.override.md`
+candidates be skipped in favour of the next name, but `agents_md_paths`
+selects the first file that exists and never reads the next one, so the
+design mirrors that and surfaces the shadowed file in `inspect` instead.
