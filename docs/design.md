@@ -374,7 +374,7 @@ repository root. The CLI help and the README say so.
 | --- | --- |
 | 0 | No `error` findings (warnings and info allowed; with `--strict`, no warnings either). |
 | 1 | At least one failing finding. |
-| 2 | Usage or config error (unknown flag, unreadable config, unknown rule id). |
+| 2 | Usage or config error (unknown flag, unreadable config, unknown rule id), and `init` refusing to overwrite a hand-edited skill copy. |
 | 3 | Internal error (stack trace printed; please report). |
 
 ### 4.4 Human output
@@ -580,9 +580,10 @@ Each copy keeps the `---` front matter as its first line, as the Agent Skills
 format requires, and carries an HTML comment on the first body line marking
 it generated, naming the refresh command, and holding a hash of the whole
 copy except the marker line, front matter included; installed
-`references/` files are covered by a manifest of hashes next to the
-`SKILL.md`. A hand-edited copy is detected and not overwritten without
-`--force`.
+`references/` files are covered by a manifest of hashes
+(`.good-agent-manifest.json`) next to the `SKILL.md`. A hand-edited copy is
+detected and not overwritten without `--force` (`init` exits 2 and names the
+file).
 Two copies rather than a symlink because
 the Claude docs say Edit and Write refuse to write through symlinks, and
 Windows checkouts turn symlinks into text files. A follow-up rule
@@ -938,8 +939,7 @@ split that keeps both DRY: **Trellis owns the backlog lifecycle** (where an
 item lives, closeout, regenerate and check) and **good-agent owns the
 working and reviewing loop** (write a story, plan, dispatch, internal and
 external review, the runner). good-agent's playbooks name Trellis's seam
-points when Trellis is present and work without it otherwise. Trellis's own
-`work-task` steps 9 and 10 (review and fix) could then defer to the
-`review-loop` skill when good-agent is installed. That edit to Trellis is a
-decision for Jereme and is listed in open questions; no story here touches
-Trellis's playbooks. GA0006 covers the taproot and taproot-controls side.
+points when Trellis is present and work without it otherwise. The owner
+decided on 2026-11-01 that Trellis's `work-task` playbook is removed once
+good-agent is ready, tracked as GA0007; good-agent's skills are the loop's
+home. GA0006 covers the taproot and taproot-controls side.

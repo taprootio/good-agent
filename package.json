@@ -44,7 +44,8 @@
     "test": "node --test",
     "typecheck": "tsc --noEmit",
     "corpus": "node scripts/corpus.mjs",
-    "check": "node scripts/good-agent.mjs check"
+    "check": "node scripts/good-agent.mjs check",
+    "sync-skill": "node scripts/sync-skill.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

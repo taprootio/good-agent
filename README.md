@@ -84,6 +84,9 @@ Then, if you want the skill in the repo for Claude Code, Codex and Copilot:
 npx good-agent init --skill
 ```
 
+This installs the skills into `.agents/skills/` and `.claude/skills/` as
+generated copies; `--force` overwrites a copy you edited.
+
 And in CI:
 
 ```yaml

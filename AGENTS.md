@@ -38,13 +38,25 @@ Good tools make hard work easy. Bad tools make easy work hard.
 - Commit messages and PR descriptions carry no AI attribution: no
   `Co-Authored-By:` trailers, no "Generated with" footers. The repo's own
   `attribution` value below is `none`.
-- Work a task with the loop in `trellis/playbooks/work-task.md`, plus an
-  external review by the other AI tool after the internal review is clean
-  (that playbook has only the internal pass). When the `work-task` and
-  `review-loop` skills from GA0003 land, this bullet points at them instead.
-  Never push or publish without the owner.
+- Work a task with the loop in [skill/work-task/SKILL.md](skill/work-task/SKILL.md)
+  and review it with [skill/review-loop/SKILL.md](skill/review-loop/SKILL.md):
+  internal review until clean, then an external round by the other AI tool
+  (Codex reviews Claude's work, Claude reviews Codex's). Never push or
+  publish without the owner.
 - Prose style: plain words, short sentences, no em dashes. Code, commands and
   error text go in fenced blocks.
+
+<!-- BEGIN GOOD-AGENT -->
+## Review policy (good-agent)
+
+Work is reviewed with the `review-loop` skill: internally in a fresh
+context until clean, then externally by the other AI tool until clean.
+Claude-authored work is reviewed by Codex and Codex-authored work by
+Claude (`review.externalReviewer` in `good-agent.config.json`). Review
+runs at the configured ceiling (`review.codex`, `review.claude`); never
+raise it without the owner. Closeouts record independence, rounds and
+dispositions, never a model name.
+<!-- END GOOD-AGENT -->
 
 <!-- BEGIN TRELLIS -->
 ## Backlog (Trellis)
