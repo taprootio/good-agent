@@ -117,7 +117,8 @@ input, and take the final fenced JSON array as the findings, for example
 `codex exec --sandbox read-only -c approval_policy="never" - < prompt.txt`.
 Compute the tree digest yourself before and after, the way the runner
 does: hash together, each part delimited, the HEAD commit (`git rev-parse
-HEAD`), the index (`git write-tree`), the output of `git status
+HEAD`), the index entries (a hash of `git ls-files --stage`, which lists
+every entry's mode, object id, stage and path), the output of `git status
 --porcelain`, and the content of every tracked and unignored untracked file
 (`git ls-files -co --exclude-standard`). A difference in any part voids the
 round, so an empty commit or a staged change that leaves the status

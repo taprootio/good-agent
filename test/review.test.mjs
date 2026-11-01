@@ -273,7 +273,7 @@ test("--by defaults from review.externalReviewer and --author", () => {
  * @param {string} reviews
  */
 function metas(reviews) {
-  const slugDir = readdirSync(reviews).find((n) => !n.endsWith(".lock") && n !== "record.txt");
+  const slugDir = readdirSync(reviews).find((n) => !n.includes(".lock") && n !== "record.txt");
   if (!slugDir) return {};
   /** @type {Record<string, any>} */
   const found = {};
@@ -745,4 +745,77 @@ test("an unreadable lock honours --no-wait and the deadline instead of waiting o
     res = review([...base, "--timeout-minutes", "0.02"], { root: r.root, reviews });
     assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /timed out waiting for another process to take over/);
   } finally { r.cleanup(); }
+});
+
+test("the tree digest sees an index-only change during an unresolved merge", () => {
+  const r = repo();
+  try {
+    writeFileSync(join(r.root, "x.txt"), "base\n"); writeFileSync(join(r.root, "c.txt"), "base\n");
+    r.g("add", "."); r.g("commit", "-q", "-m", "files");
+    r.g("checkout", "-q", "-b", "other");
+    writeFileSync(join(r.root, "c.txt"), "theirs\n"); r.g("commit", "-q", "-am", "theirs");
+    r.g("checkout", "-q", "-");
+    writeFileSync(join(r.root, "c.txt"), "ours\n"); r.g("commit", "-q", "-am", "ours");
+    assert.throws(() => r.g("merge", "other"), undefined, "the merge conflicts");
+    assert.notEqual(r.g("ls-files", "-u"), "", "the index is unmerged");
+    // x.txt: worktree differs from HEAD and from the index in both states, so the
+    // status stays " MM"-style identical and only the index entry differs.
+    writeFileSync(join(r.root, "x.txt"), "worktree\n");
+    const blob = (/** @type {string} */ text) => execFileSync("git", ["-C", r.root, "hash-object", "-w", "--stdin"], { input: text, encoding: "utf8" }).trim();
+    const stage = (/** @type {string} */ oid) => r.g("update-index", "--cacheinfo", `100644,${oid},x.txt`);
+    stage(blob("staged one\n"));
+    const status = r.g("status", "--porcelain");
+    const d1 = treeDigest(r.root);
+    stage(blob("staged two\n"));
+    assert.equal(r.g("status", "--porcelain"), status, "git status does not show the difference");
+    assert.notEqual(treeDigest(r.root), d1, "but the digest does");
+  } finally { r.cleanup(); }
+});
+
+test("a failing lock record kills and reaps the reviewer's group, clears the timer and still releases the lock", async () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const marker = join(reviews, "alive.txt");
+    const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_SLEEP: "30", FAKE_TOUCH: marker };
+    const child = spawn(process.execPath, [BIN, "review", "--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { cwd: r.root, env });
+    // setChild writes <lock>.tmp-<runner pid>; a directory there makes that write fail.
+    mkdirSync(join(reviews, `codex.lock.tmp-${child.pid}`));
+    let stderr = "";
+    child.stderr.on("data", (d) => { stderr += d; });
+    const status = await Promise.race([
+      new Promise((done) => child.on("close", done)),
+      new Promise((done) => setTimeout(() => done("hung"), 12_000)),
+    ]);
+    if (status === "hung") child.kill("SIGKILL");
+    assert.equal(status, 3, `the runner must exit (a live timer would keep it for the whole timeout): ${stderr}`);
+    assert.match(stderr, /REVIEW_ERROR.*could not record the reviewer's process group in the lock/);
+    assert.ok(!existsSync(join(reviews, "codex.lock")), "lock released");
+    assert.equal(metas(reviews)["GA0002-story-r1"].status, "REVIEW_ERROR");
+  } finally { r.cleanup(); }
+});
+
+test("runChild: when onSpawn throws the group is gone and no timer is left before it resolves", () => {
+  const script = `
+    import { runChild } from ${JSON.stringify(join(REPO, "src", "review.mjs"))};
+    import { existsSync, readFileSync } from "node:fs";
+    const file = process.argv[1];
+    const trap = { signal: null, kill: null, dispose() {} };
+    const result = await runChild("sh", ["-c", 'sleep 30 </dev/null >/dev/null 2>&1 & echo "$$ $!" > "' + file + '"; sleep 30'], {
+      cwd: process.cwd(), env: process.env, input: "", timeoutMs: 600000, trap, onSpawn() {
+        for (let i = 0; i < 100 && !existsSync(file); i += 1) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+        throw new Error("lock unwritable");
+      } });
+    const [pgid, kid] = existsSync(file) ? readFileSync(file, "utf8").trim().split(" ").map(Number) : [0, 0];
+    const gone = (pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === "ESRCH"; } };
+    console.log(JSON.stringify({ error: String(result.error && result.error.message), groupGone: gone(-pgid), kidGone: kid ? gone(kid) : true }));
+  `;
+  const file = join(scratch("good-agent-runchild-"), "pids.txt");
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", script, file], { encoding: "utf8", timeout: 15_000 });
+  assert.equal(r.status, 0, `the process exits by itself, so no timer is left: ${r.stderr}`);
+  assert.ok(Date.now() - t0 < 12_000);
+  const out = JSON.parse(r.stdout);
+  assert.match(out.error, /could not record the reviewer's process group in the lock: lock unwritable/);
+  assert.equal(out.groupGone, true); assert.equal(out.kidGone, true);
 });

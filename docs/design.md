@@ -873,7 +873,7 @@ repo can link to.
    validation restricts under `dontAsk`, and no Edit, Write or Agent), the
    findings schema through
    `--output-schema` and `--json-schema`, tree digests before and after (the
-   digest covers `HEAD`, the index from `git write-tree`, the porcelain
+   digest covers `HEAD`, the index entries from `git ls-files --stage`, the porcelain
    status and the content of every tracked and unignored untracked file, so
    an empty commit or a staged change voids a round too), a
    per-reviewer lock so two reviews by the same reviewer never run at once,

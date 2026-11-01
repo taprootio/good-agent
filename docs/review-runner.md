@@ -85,8 +85,11 @@ the message names the log).
 5. Records the tree digest, builds the prompt and, for Codex, lists and
    switches off MCP servers (a server counts as enabled unless the listing
    says `enabled: false`, in both the first listing and the re-list). The digest hashes, each part labelled and
-   delimited by a NUL: `git rev-parse HEAD` (or `none`), `git write-tree` for
-   the index (or `none` outside a git repository), the porcelain status, and
+   delimited by a NUL: `git rev-parse HEAD` (or `none`), a hash of `git ls-files
+   --stage -z` for the index (every entry's mode, object id, stage and path,
+   conflict stages included, so it works during an unresolved merge; `none`
+   outside a git repository; a git failure refuses the review with
+   `REVIEW_ERROR: the index cannot be fingerprinted`), the porcelain status, and
    the path and content hash of every file from `git ls-files -co
    --exclude-standard` that still exists (a symlink counts by its target),
    all taken from the top of the working tree (`git rev-parse

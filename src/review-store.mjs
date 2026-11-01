@@ -235,27 +235,28 @@ export async function acquireLock(root, reviewer, options) {
 }
 
 /**
- * `git write-tree`, retried briefly: it needs the index lock, which another
- * git command (the reviewer's own `git status`, a second review of the same
- * clone) may hold for a moment. A failure that persists, such as an index
- * with unmerged entries, is the same before and after and so harmless.
+ * A fingerprint of the index from `git ls-files --stage -z`: the mode,
+ * object id, stage and path of every entry, conflict stages included. Unlike
+ * `git write-tree` it works during an unresolved merge and takes no index
+ * lock. A failure throws, so the review is refused rather than run with an
+ * index nobody can compare.
  * @param {string} root
- * @returns {string | null}
  */
-function writeTree(root) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const tree = git(root, ["write-tree"]);
-    if (tree !== null) return tree;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+function indexFingerprint(root) {
+  try {
+    const listing = execFileSync("git", ["-C", root, "ls-files", "--stage", "-z"], { encoding: "buffer", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 256 * 1024 * 1024 });
+    return createHash("sha256").update(listing).digest("hex");
+  } catch (error) {
+    throw new Error(`the index cannot be fingerprinted (git ls-files --stage failed: ${/** @type {Error} */ (error).message.split("\n")[0]})`);
   }
-  return null;
 }
 
 /**
  * A digest of the repository state a review must not change. Each part is
  * delimited by a NUL and carries a label: `git rev-parse HEAD` (or "none"),
- * `git write-tree` for the index (or "none" when the directory is not a git
- * repository or the index cannot be written), the porcelain status, and then
+ * a hash of `git ls-files --stage -z` for the index (every entry's mode,
+ * object id, stage and path, conflicts included; "none" when the directory is
+ * not a git repository; a git failure throws), the porcelain status, and then
  * the path and content hash of every file in `git ls-files -co
  * --exclude-standard` that still exists. HEAD and the index are in the digest
  * so an empty commit or a staged change that leaves the status unchanged
@@ -272,7 +273,7 @@ export function treeDigest(dir) {
   const part = (label, value) => { hash.update(label); hash.update("\0"); hash.update(value); hash.update("\0"); };
   const inRepo = git(root, ["rev-parse", "--git-dir"]) !== null;
   part("head", git(root, ["rev-parse", "HEAD"]) ?? "none");
-  part("index", (inRepo ? writeTree(root) : null) ?? "none");
+  part("index", inRepo ? indexFingerprint(root) : "none");
   part("status", git(root, ["status", "--porcelain=v1", "-z"]) ?? "none");
   const listed = inRepo ? gitRaw(root, ["ls-files", "-co", "--exclude-standard", "-z"]) : "";
   for (const rel of listed.split("\0").filter(Boolean).sort()) {

@@ -279,7 +279,7 @@ async function reapGroup(pgid) {
  * @param {{ cwd: string, env: Env, input: string, timeoutMs: number, trap: ReturnType<typeof trapSignals>, onSpawn: (pgid: number) => void }} o
  * @returns {Promise<{ status: number | null, signal: string | null, stdout: string, stderr: string, error: Error | null, timedOut: boolean, interrupted: string | null }>}
  */
-function runChild(command, argv, o) {
+export function runChild(command, argv, o) {
   return new Promise((done) => {
     const result = { status: /** @type {number | null} */ (null), signal: /** @type {string | null} */ (null), stdout: "", stderr: "", error: /** @type {Error | null} */ (null), timedOut: false, interrupted: /** @type {string | null} */ (null) };
     if (o.trap.signal) { result.interrupted = o.trap.signal; done(result); return; }
@@ -306,8 +306,6 @@ function runChild(command, argv, o) {
     };
     const timer = setTimeout(() => { result.timedOut = true; killGroup(); }, o.timeoutMs);
     o.trap.kill = killGroup;
-    if (child.pid) o.onSpawn(child.pid);
-    if (o.trap.signal) killGroup();
     child.stdout?.setEncoding("utf8"); child.stderr?.setEncoding("utf8");
     child.stdout?.on("data", (d) => { result.stdout += d; });
     child.stderr?.on("data", (d) => { result.stderr += d; });
@@ -323,6 +321,16 @@ function runChild(command, argv, o) {
     });
     child.on("close", () => { closed = true; if (reaped) finish(); });
     child.stdin?.end(o.input);
+    // Only now, with every handler installed, record the reviewer's group. If
+    // that fails the review cannot be tracked: kill the group and let the exit
+    // path reap it and clear the timer before the result resolves.
+    if (child.pid) {
+      try { o.onSpawn(child.pid); } catch (error) {
+        result.error = new Error(`could not record the reviewer's process group in the lock: ${error instanceof Error ? error.message : String(error)}`);
+        killGroup();
+      }
+    }
+    if (o.trap.signal) killGroup();
   });
 }
 
