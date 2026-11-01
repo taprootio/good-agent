@@ -258,7 +258,7 @@ the fact it rests on, and the decision on the candidate list from the brief.
 | --- | --- | --- | --- |
 | `canonical/detect` | error | v0.1 | A canonical file could be determined (section 2). |
 | `canonical/name` | warn | v0.1 | The canonical file is named `AGENTS.md`. Otherwise Codex (only `AGENTS.md` and user-configured fallbacks) and Copilot (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) see only a written pointer. Fix: rename and keep `CLAUDE.md` as `@AGENTS.md`. |
-| `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory totals at most `limits.codexBytes` (32,768). Per directory the chain takes the first file that exists in the order `AGENTS.override.md`, `AGENTS.md`, configured fallbacks, exactly as the loader does (`agents_md_paths` probes metadata only); if that file is empty it contributes zero bytes and the directory's other candidates are not read, so an empty override silences its directory's `AGENTS.md`, which the finding says when it applies. The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load. Source: `agents_md.rs` truncation loop. |
+| `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory totals at most `limits.codexBytes` (32,768). Per directory the chain takes the first file that exists in the order `AGENTS.override.md`, `AGENTS.md`, exactly as the loader does (`agents_md_paths` probes metadata only); if that file is empty it contributes zero bytes and the directory's `AGENTS.md` is not read, so an empty override silences its directory. That case produces no budget finding; `inspect` shows the selected file with its zero bytes and the shadowed `AGENTS.md`, and a `codex/override-shadows` warning is v0.2. User-configured `project_doc_fallback_filenames` live in `~/.codex/config.toml`, so v0.1 does not model them and says so in `explain`. The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load. Source: `agents_md.rs` truncation loop. |
 | `claude/import-canonical` | error | v0.1 | If `CLAUDE.md` (or `.claude/CLAUDE.md`) exists and the canonical file is a different file, it contains an `@<canonical>` import outside code spans. A Markdown link is not enough. If there is no `CLAUDE.md` and the canonical file is not `AGENTS.md`, that is an error too (Claude loads nothing). If there is no `CLAUDE.md` and the canonical file is `AGENTS.md`, that is `info`: Claude Code 2.1.277+ reads it, older versions do not. |
 | `claude/size` | warn | v0.1 | The launch set is what Claude Code loads at startup: `CLAUDE.md` or `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` without `paths`, and their `@` imports to four hops, each file once; with no `CLAUDE.md` at all, `AGENTS.md` (the documented fallback). Warn for **each file** in that set over `limits.claudeLines` (200), which is the documented per-file target. When no file is over the target but the launch set together is, one `info` finding reports the total, because the docs say a combined warning exists but give no number; a clean repo gets no finding at all. Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding names the file, how it reaches the launch set (directly or via which import), and its line count. |
 | `links/broken` | error | v0.1 | Every relative Markdown link and every `@` import in an instruction file resolves to an existing path. Fragments are stripped; `http(s)`, `mailto` and `#` anchors are skipped; a Markdown link with a leading `/` resolves from the repo root, as in canonical detection; `~/` and absolute imports are skipped (they are outside the repo). Imports are resolved relative to the containing file, as the Claude docs say. A broken import is called out separately because Claude "silently loads nothing for it." |
@@ -327,7 +327,9 @@ good-agent check [options] [path...]
     Run the rules. With paths, run only when at least one path is an
     instruction file, a link target of one, or the config file in effect
     (default or --config) (for verify-changed style scripts); otherwise
-    exit 0 immediately with "nothing to check".
+    exit 0 immediately with "nothing to check". Checks the directory it
+    runs in (or --cwd); run from the repository root to validate the whole
+    Codex chain and root-relative links.
 
 good-agent inspect [--json]
     What each tool loads: the detected canonical file, every instruction
@@ -361,9 +363,10 @@ never walks up to the git top level: discovery, the Codex chain and the JSON
 subdirectory as a root. This keeps the empty-directory case well defined,
 but it is narrower than Codex, which loads from the repository root down to
 its cwd: a run from a subdirectory cannot see the ancestor `AGENTS.md`
-files that share the budget, so complete `codex/size-budget` validation
-means running from the repository root. The CLI help and the README say
-so.
+files that share the budget, and a Markdown link with a leading `/`
+resolves against that root too, so complete `codex/size-budget`,
+`links/broken` and canonical-detection results need a run from the
+repository root. The CLI help and the README say so.
 
 ### 4.3 Exit codes
 
@@ -875,8 +878,8 @@ repo can link to.
    overwrites the other. Without `--json` the command prints a human summary
    (file, line, severity, suggestion per finding, then the count); with it,
    the bare array. The history file always holds the array. Rounds are
-   numbered per task and prompt type (`<id>-<prompt>-rN`) so story, plan and
-   diff rounds keep separate counters, and the external caps (ten with
+   numbered per task and prompt type (`<id>-<prompt>-rN`) so story, plan,
+   diff and design rounds keep separate counters, and the external caps (ten with
    Codex reviewing, five with Claude) apply per prompt type and count only
    completed rounds: a round whose reviewer failed or whose tree moved
    keeps its number, records the failure in its `.meta.json`, and does not

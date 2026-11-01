@@ -111,7 +111,7 @@ And in CI:
 | `codex/size-budget` | error | Every root-to-directory chain of `AGENTS.md` files fits Codex's 32 KiB combined budget. Reports where the cut lands. |
 | `claude/import-canonical` | error | `CLAUDE.md` imports the canonical file with `@path`, not a link or a sentence. |
 | `claude/import-depth` | warn | No import chain deeper than Claude's four hops. |
-| `claude/size` | warn | Every file Claude loads at launch (CLAUDE.md or .claude/CLAUDE.md, CLAUDE.local.md, their imports, .claude/rules without paths, or AGENTS.md as the fallback) is under 200 lines; one info line if only the total is over. |
+| `claude/size` | warn | Every file Claude loads at launch (CLAUDE.md or .claude/CLAUDE.md, CLAUDE.local.md, .claude/rules without paths, their imports, or AGENTS.md as the fallback) is under 200 lines; one info line if only the total is over. |
 | `links/broken` | error | Relative links and `@` imports resolve. |
 | `copilot/applyto` | error | Path-specific instruction files have valid `applyTo` front matter. |
 | `dry/copied-canonical` | error | No tool file is a copy of the canonical file. |
@@ -139,7 +139,7 @@ Optional. `good-agent.config.json` at the repo root:
 ## Commands and flags
 
 ```
-good-agent check [--json] [--strict] [--verbose] [--rule id] [--config file] [path...]
+good-agent check [--json] [--strict] [--verbose] [--rule id] [--config file] [--cwd dir] [path...]
 good-agent inspect [--json]      what each tool loads, with sizes
 good-agent explain <rule>
 good-agent rules
@@ -150,7 +150,8 @@ Exit codes: 0 pass, 1 findings, 2 usage or config error.
 
 `check` looks at the directory it runs in (or `--cwd`). Codex loads
 `AGENTS.md` files from the repository root down to its working directory,
-so run the guard from the repository root to validate the whole budget.
+and a link starting with `/` resolves from the root, so run the guard from
+the repository root to validate the whole budget and root-relative links.
 
 With paths, `check` runs only when one of them is an instruction file, a
 file an instruction file links to, or the config file, so a pre-commit
