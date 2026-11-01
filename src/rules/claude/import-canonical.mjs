@@ -39,7 +39,7 @@ export default {
         out.push({
           file: canonical,
           message: `No CLAUDE.md, and the canonical file is ${canonical}, which Claude Code never loads on its own.`,
-          fix: `Add a CLAUDE.md whose first line is @${canonical}.`,
+          fix: `Add a CLAUDE.md whose first line is ${importText("CLAUDE.md", canonical)}.`,
         });
       }
       return out;

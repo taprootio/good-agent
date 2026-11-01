@@ -1,5 +1,6 @@
 // @ts-check
 import { withoutGeneratedBlocks } from "../../markdown.mjs";
+import { importText } from "../claude/import-canonical.mjs";
 
 /** @param {string} src */
 function substantiveLines(src) {
@@ -33,7 +34,7 @@ export default {
       out.push({
         file: f.path,
         message: `${shared} of ${mine.length} substantive lines are copied from ${canonical}.`,
-        fix: `Replace the copy with @${canonical} (Claude Code) or a pointer (Copilot).`,
+        fix: `Replace the copy with ${importText(f.path, canonical)} (Claude Code) or a pointer (Copilot).`,
         data: { shared, total: mine.length, canonical },
       });
     }

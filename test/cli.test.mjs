@@ -200,3 +200,21 @@ test("copilot/applyto accepts a trailing comment on excludeAgent", () => {
     assert.ok(!j.findings.some((/** @type {any} */ f) => f.rule === "copilot/applyto"), JSON.stringify(j.findings));
   } finally { t.cleanup(); }
 });
+
+test("fix text uses an import path that resolves from the file it goes in", () => {
+  const body = "# Rules\n\n" + Array.from({ length: 11 }, (_, i) => `- Substantive rule number ${i} that is long enough.`).join("\n") + "\n";
+  const t = tempTree({ "AGENTS.md": body, "CLAUDE.md": "@AGENTS.md\n", "sub/CLAUDE.md": body });
+  try {
+    const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
+    const f = j.findings.find((/** @type {any} */ x) => x.rule === "dry/copied-canonical" && x.file === "sub/CLAUDE.md");
+    assert.ok(f, JSON.stringify(j.findings));
+    assert.ok(f.fix.includes("@../AGENTS.md"), f.fix);
+  } finally { t.cleanup(); }
+  const sp = tempTree({ "docs/Team Guide.md": "# Guide\n\n- A rule that is long enough to count.\n- Another rule that is long enough.\n", "good-agent.config.json": '{"canonical":"docs/Team Guide.md"}\n' });
+  try {
+    const j = JSON.parse(run(["check", "--json", "--cwd", sp.root]).stdout);
+    const f = j.findings.find((/** @type {any} */ x) => x.rule === "claude/import-canonical");
+    assert.ok(f, JSON.stringify(j.findings));
+    assert.ok(f.fix.includes("@docs/Team\\ Guide.md"), f.fix);
+  } finally { sp.cleanup(); }
+});
