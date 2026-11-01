@@ -261,7 +261,7 @@ the fact it rests on, and the decision on the candidate list from the brief.
 | `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory (one file per directory, override preferred) totals at most `limits.codexBytes` (32,768). The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load. Source: `agents_md.rs` truncation loop. |
 | `claude/import-canonical` | error | v0.1 | If `CLAUDE.md` (or `.claude/CLAUDE.md`) exists and the canonical file is a different file, it contains an `@<canonical>` import outside code spans. A Markdown link is not enough. If there is no `CLAUDE.md` and the canonical file is not `AGENTS.md`, that is an error too (Claude loads nothing). If there is no `CLAUDE.md` and the canonical file is `AGENTS.md`, that is `info`: Claude Code 2.1.277+ reads it, older versions do not. |
 | `claude/size` | warn | v0.1 | The launch set is what Claude Code loads at startup: `CLAUDE.md` or `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` without `paths`, and their `@` imports to four hops, each file once; with no `CLAUDE.md` at all, `AGENTS.md` (the documented fallback). Warn for **each file** in that set over `limits.claudeLines` (200), which is the documented per-file target. When no file is over the target but the launch set together is, one `info` finding reports the total, because the docs say a combined warning exists but give no number; a clean repo gets no finding at all. Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding names the file, how it reaches the launch set (directly or via which import), and its line count. |
-| `links/broken` | error | v0.1 | Every relative Markdown link and every `@` import in an instruction file resolves to an existing path. Fragments are stripped; `http(s)`, `mailto` and `#` anchors are skipped; `~/` and absolute imports are skipped (they are outside the repo). Imports are resolved relative to the containing file, as the Claude docs say. A broken import is called out separately because Claude "silently loads nothing for it." |
+| `links/broken` | error | v0.1 | Every relative Markdown link and every `@` import in an instruction file resolves to an existing path. Fragments are stripped; `http(s)`, `mailto` and `#` anchors are skipped; a Markdown link with a leading `/` resolves from the repo root, as in canonical detection; `~/` and absolute imports are skipped (they are outside the repo). Imports are resolved relative to the containing file, as the Claude docs say. A broken import is called out separately because Claude "silently loads nothing for it." |
 | `claude/import-depth` | warn | v0.1 | An import chain deeper than four hops; the docs say files past that are not loaded. Cheap to check while resolving `links/broken`. |
 | `copilot/applyto` | error | v0.1 | Every `.github/instructions/*.instructions.md` starts with front matter containing `applyTo`; `excludeAgent`, if present, is `code-review` or `cloud-agent`. Without `applyTo` Copilot never attaches the file. |
 | `dry/copied-canonical` | error | v0.1 | A tool file whose substantive lines (normalised whitespace, at least 20 chars, not headings) are at least 50% identical to lines in the canonical file, with a floor of five lines. This is the "CLAUDE.md copies AGENTS.md instead of importing it" case. Fix: replace with `@<canonical>` or a pointer. |
@@ -567,8 +567,11 @@ Shipped in the package under `skill/<name>/SKILL.md` and listed in `files`.
 (Codex, Copilot) and `.claude/skills/<name>/SKILL.md` (Claude Code, Copilot).
 Each copy keeps the `---` front matter as its first line, as the Agent Skills
 format requires, and carries an HTML comment on the first body line marking
-it generated, naming the refresh command, and holding a content hash so a
-hand-edited copy is detected and not overwritten without `--force`.
+it generated, naming the refresh command, and holding a hash of the whole
+copy except the marker line, front matter included; installed
+`references/` files are covered by a manifest of hashes next to the
+`SKILL.md`. A hand-edited copy is detected and not overwritten without
+`--force`.
 Two copies rather than a symlink because
 the Claude docs say Edit and Write refuse to write through symlinks, and
 Windows checkouts turn symlinks into text files. A follow-up rule
@@ -593,7 +596,8 @@ git diff --cached --name-only -z | xargs -0 -r npx --no-install good-agent check
 a link target of one, or the config file in effect (default or `--config`),
 so the hook costs nothing on ordinary commits. NUL-delimited paths keep a
 filename with a space as one argument, and `xargs -r` (accepted by GNU and
-BSD xargs) runs nothing on an empty commit. With `lint-staged` the
+BSD xargs) runs nothing on an empty commit. `npx --no-install` needs
+`good-agent` in the repo's devDependencies. With `lint-staged` the
 equivalent entry is `"*": "good-agent check"`: every staged path goes to
 `check`, whose own filter decides, so a config-only or link-target-only
 commit is not missed.
@@ -805,8 +809,9 @@ repo can link to.
    the story prompt (internal until clean, then external until clean);
    finalize into the backlog.
 2. **`work-task`**: read and verify the task; propose refinements; branch
-   (no edit before this, so the clean-tree rule Trellis and Taproot share
-   holds); write the refinements and a plan with checkpoints into the task
+   (no edit before this, so Trellis's clean-tree rule holds; Taproot's own
+   loop edits the task before branching, and this loop does not); write the
+   refinements and a plan with checkpoints into the task
    file on the branch; review the plan internally then externally; hand
    bounded slices to the least-cost runtime that meets the quality floor
    (Taproot's "select a runtime deliberately" and "review cost ceiling"
@@ -846,7 +851,8 @@ repo can link to.
    validation restricts under `dontAsk`, and no Edit, Write or Agent), the
    findings schema through
    `--output-schema` and `--json-schema`, tree digests before and after, a
-   per-reviewer lock so two reviews never run at once, numbered rounds with
+   per-reviewer lock so two reviews by the same reviewer never run at once,
+   numbered rounds with
    `--prior`, and a reviews directory outside the tree
    (`~/.config/good-agent/reviews/<repo-slug>/<id>-<prompt>-rN.{json,meta.json,log}`),
    where a round is reserved by creating its `.meta.json` exclusively
@@ -864,7 +870,10 @@ repo can link to.
    the bare array. The history file always holds the array. Rounds are
    numbered per task and prompt type (`<id>-<prompt>-rN`) so story, plan and
    diff rounds keep separate counters, and the external caps (ten with
-   Codex reviewing, five with Claude) apply per prompt type.
+   Codex reviewing, five with Claude) apply per prompt type and count only
+   completed rounds: a round whose reviewer failed or whose tree moved
+   keeps its number, records the failure in its `.meta.json`, and does not
+   count toward the cap.
    The reviews directory is keyed by the repository, not the worktree:
    `<repo-slug>` is the basename of the git common directory's parent plus a
    short hash of its absolute path, so every worktree of one clone shares a

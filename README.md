@@ -111,7 +111,7 @@ And in CI:
 | `codex/size-budget` | error | Every root-to-directory chain of `AGENTS.md` files fits Codex's 32 KiB combined budget. Reports where the cut lands. |
 | `claude/import-canonical` | error | `CLAUDE.md` imports the canonical file with `@path`, not a link or a sentence. |
 | `claude/import-depth` | warn | No import chain deeper than Claude's four hops. |
-| `claude/size` | warn | Every file Claude loads at launch (CLAUDE.md or .claude/CLAUDE.md, imports, rules, or AGENTS.md as the fallback) is under 200 lines; one info line if only the total is over. |
+| `claude/size` | warn | Every file Claude loads at launch (CLAUDE.md or .claude/CLAUDE.md, CLAUDE.local.md, their imports, .claude/rules without paths, or AGENTS.md as the fallback) is under 200 lines; one info line if only the total is over. |
 | `links/broken` | error | Relative links and `@` imports resolve. |
 | `copilot/applyto` | error | Path-specific instruction files have valid `applyTo` front matter. |
 | `dry/copied-canonical` | error | No tool file is a copy of the canonical file. |
