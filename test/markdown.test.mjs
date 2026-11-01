@@ -73,3 +73,10 @@ test("code spans across lines, percent-encoded targets, parenthesized titles, st
   const fm = parseFrontMatter("\uFEFF---\napplyTo: \"**/*.cs\"\n---\n");
   assert.ok(fm && fm.data.applyTo === "**/*.cs");
 });
+
+test("spans do not cross paragraphs, escaped backticks and brackets are literal", () => {
+  assert.deepEqual(markdownLinks("`a\n\n[guide](missing.md)\n\nb`\n").map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(markdownLinks("\\`not code [x](a.md)\n").map((l) => l.target), ["a.md"]);
+  assert.deepEqual(markdownLinks("[label\\](missing.md) and [ok](b.md)\n").map((l) => l.target), ["b.md"]);
+  assert.deepEqual(markdownLinks("[label\\\\](c.md)\n").map((l) => l.target), ["c.md"]);
+});

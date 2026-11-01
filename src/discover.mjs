@@ -22,6 +22,7 @@ const ROOT_ONLY = /^(\.github\/copilot-instructions\.md|\.github\/instructions\/
  * @typedef {object} InstructionFile
  * @property {string} path  repo-relative POSIX path
  * @property {string} text
+ * @property {Buffer} raw  the bytes on disk
  * @property {number} bytes  on disk, not of the decoded text
  * @property {number} lines
  * @property {string} realPath  absolute, symlinks resolved
@@ -102,7 +103,7 @@ function readInstructionFile(abs, rel) {
     if (!statSync(abs).isFile()) return null;
     const buf = readFileSync(abs);
     const text = buf.toString("utf8");
-    return { path: rel, text, bytes: buf.length, lines: countLines(text), realPath: realpathSync(abs), symlink };
+    return { path: rel, text, raw: buf, bytes: buf.length, lines: countLines(text), realPath: realpathSync(abs), symlink };
   } catch { return null; }
 }
 
@@ -118,6 +119,8 @@ function readInstructionFile(abs, rel) {
  */
 export function resolveReference(fromPath, target, kind) {
   if (target.startsWith("~")) return null;
+  // Windows drive (C:/, C:\) and UNC (//server, \\server) paths are absolute too.
+  if (/^[A-Za-z]:[\\/]/.test(target) || target.startsWith("\\\\") || target.startsWith("//")) return null;
   if (target.startsWith("/")) return kind === "link" ? posix.normalize(target.slice(1)) : null;
   const resolved = posix.normalize(posix.join(posix.dirname(fromPath), target));
   if (resolved.startsWith("../") || resolved === "..") return null;

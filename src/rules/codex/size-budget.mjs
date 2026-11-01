@@ -25,12 +25,11 @@ export default {
         remaining -= entry.bytes;
       }
       const file = ctx.repo.byPath.get(cut.file);
-      const text = file ? file.text : "";
-      const buf = Buffer.from(text);
+      const buf = file ? file.raw : Buffer.alloc(0);
       const before = buf.subarray(0, Math.max(0, remaining)).toString("utf8");
       const line = before.split("\n").length;
       const heading = (before.match(/^#{1,6} .*$/gm) || []).pop() ?? "(no heading)";
-      const lost = Buffer.byteLength(text) - remaining;
+      const lost = buf.length - remaining;
       const chainText = chain.entries.map((e) => e.file).join(" → ");
       const key = `${cut.file}@${remaining}`;
       const existing = byCut.get(key);

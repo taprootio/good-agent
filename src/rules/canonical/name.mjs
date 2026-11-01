@@ -13,7 +13,7 @@ export default {
   fix: "Rename the canonical file to AGENTS.md and keep CLAUDE.md as a file whose first line is @AGENTS.md.",
   run(ctx) {
     const { canonical } = ctx.canonical;
-    if (canonical === null || canonical === "AGENTS.md") return [];
+    if (canonical === null || canonical === "AGENTS.md" || canonical.endsWith("/AGENTS.md")) return [];
     // Copilot reads a root CLAUDE.md or GEMINI.md too; Codex reads AGENTS.md only.
     const copilotReads = canonical === "CLAUDE.md" || canonical === "GEMINI.md";
     const who = copilotReads ? "Codex does" : "Codex and Copilot do";

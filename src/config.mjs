@@ -6,7 +6,7 @@
  * CLI turns into exit 2.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 
 export const CONFIG_FILENAME = "good-agent.config.json";
 export const SEVERITIES = /** @type {const} */ (["error", "warn", "info", "off"]);
@@ -85,12 +85,14 @@ export function validateConfig(raw, knownRuleIds, where = CONFIG_FILENAME) {
   for (const key of Object.keys(raw)) {
     if (!allowed.has(key)) throw new ConfigError(`${where}: unknown key "${key}"`);
   }
+  if (raw.$schema !== undefined && typeof raw.$schema !== "string") throw new ConfigError(`${where}: "$schema" must be a string`);
   if (raw.version !== undefined) {
     if (raw.version !== 1) throw new ConfigError(`${where}: "version" must be 1 (got ${JSON.stringify(raw.version)}); this good-agent reads config version 1`);
   }
   if (raw.canonical !== undefined) {
     if (typeof raw.canonical !== "string" || raw.canonical === "") throw new ConfigError(`${where}: "canonical" must be a non-empty string`);
-    config.canonical = raw.canonical.replace(/\\/g, "/").replace(/^\.\//, "");
+    config.canonical = posix.normalize(raw.canonical.replace(/\\/g, "/")).replace(/^\.\//, "");
+    if (config.canonical.startsWith("../") || config.canonical === "." || config.canonical === "..") throw new ConfigError(`${where}: "canonical" must be a path inside the repository`);
   }
   for (const key of /** @type {const} */ (["ignore", "extraFiles"])) {
     const value = raw[key];
@@ -101,7 +103,7 @@ export function validateConfig(raw, knownRuleIds, where = CONFIG_FILENAME) {
   if (raw.limits !== undefined) {
     if (!isObject(raw.limits)) throw new ConfigError(`${where}: "limits" must be an object`);
     for (const key of Object.keys(raw.limits)) {
-      if (!(key in config.limits)) throw new ConfigError(`${where}: unknown limit "${key}"`);
+      if (!Object.hasOwn(config.limits, key)) throw new ConfigError(`${where}: unknown limit "${key}"`);
       const v = raw.limits[key];
       if (!Number.isInteger(v) || /** @type {number} */ (v) < 1) throw new ConfigError(`${where}: limits.${key} must be a positive integer`);
       config.limits[/** @type {keyof Config["limits"]} */ (key)] = /** @type {number} */ (v);

@@ -30,9 +30,11 @@ export function stripCode(src) {
       lines[i] = " ".repeat(line.length);
     }
   }
-  // Inline code spans may span lines: a run of N backticks closes with the
-  // same run. Blank them across the whole text, keeping newlines.
-  return lines.join("\n").replace(/(?<!`)(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)/g, (m) => m.replace(/[^\n]/g, " "));
+  // Inline code spans may span lines but not paragraphs: a run of N
+  // backticks (not escaped) closes with the same run inside one paragraph.
+  // Blank them, keeping newlines.
+  return lines.join("\n").split(/(\n[ \t]*\n)/).map((chunk, i) => (i % 2 === 1 ? chunk
+    : chunk.replace(/(?<![`\\])(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)/g, (m) => m.replace(/[^\n]/g, " ")))).join("");
 }
 
 /**
@@ -141,7 +143,7 @@ export function markdownLinks(src) {
   for (;;) {
     const at = clean.indexOf("](", from);
     if (at < 0) break;
-    if (!hasOpeningBracket(clean, at)) { from = at + 2; continue; }
+    if (isEscaped(clean, at) || !hasOpeningBracket(clean, at)) { from = at + 2; continue; }
     let i = at + 2;
     while (clean[i] === " " || clean[i] === "\t") i += 1;
     let raw = "";
@@ -196,11 +198,23 @@ function hasOpeningBracket(text, index) {
   for (let i = index - 1; i >= 0; i -= 1) {
     const c = text[i];
     if (c === "\n" && text[i - 1] === "\n") return false;
-    if (i > 0 && text[i - 1] === "\\") continue;
+    if (isEscaped(text, i)) continue;
     if (c === "]") depth += 1;
     else if (c === "[") { if (depth === 0) return true; depth -= 1; }
   }
   return false;
+}
+
+/**
+ * Whether the character at `index` is escaped: preceded by an odd number of
+ * backslashes.
+ * @param {string} text
+ * @param {number} index
+ */
+function isEscaped(text, index) {
+  let n = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) n += 1;
+  return n % 2 === 1;
 }
 
 /**

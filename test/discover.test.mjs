@@ -143,3 +143,28 @@ test("non-UTF-8 bytes are counted on disk and the ignore check covers every ance
   assert.ok(isIgnoredTarget("third/party/deep/file.md", config));
   assert.ok(!isIgnoredTarget("docs/guide.md", config));
 });
+
+test("Windows absolute imports are skipped; a nested canonical AGENTS.md has the right name; a normalized canonical path", () => {
+  assert.equal(resolveReference("CLAUDE.md", "C:/Users/me/guide.md", "import"), null);
+  assert.equal(resolveReference("CLAUDE.md", "\\\\server\\share\\x.md", "import"), null);
+  const t = tempTree({ "api/AGENTS.md": "# api\n\n- Rule one that is long enough.\n", "CLAUDE.md": "@api/AGENTS.md\n", "good-agent.config.json": '{"canonical":"docs/../api/AGENTS.md"}\n' });
+  try {
+    const r = run(["check", "--json", "--cwd", t.root]);
+    const j = JSON.parse(r.stdout);
+    assert.equal(j.canonical, "api/AGENTS.md");
+    assert.ok(!j.findings.some((/** @type {any} */ f) => f.rule === "canonical/name"), JSON.stringify(j.findings));
+    assert.ok(!j.findings.some((/** @type {any} */ f) => f.rule === "claude/import-canonical"), JSON.stringify(j.findings));
+  } finally { t.cleanup(); }
+});
+
+test("budget diagnostics use on-disk bytes for a non-UTF-8 file", async () => {
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const t = tempTree({ "CLAUDE.md": "@AGENTS.md\n" });
+  try {
+    writeFileSync(join(t.root, "AGENTS.md"), Buffer.concat([Buffer.from("# a\n"), Buffer.alloc(39996, 0xff)]));
+    const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
+    const f = j.findings.find((/** @type {any} */ x) => x.rule === "codex/size-budget");
+    assert.equal(f.data.lostBytes, 40000 - 32768);
+  } finally { t.cleanup(); }
+});
