@@ -40,7 +40,7 @@ test("placeholders are README-only: no bin, no main, files is README.md", () => 
   for (const [dir, name] of [["good-agent", "good-agent"], ["scoped", "@taprootio/good-agent"]]) {
     const pkg = readJson(`placeholder/${dir}/package.json`);
     assert.equal(pkg.name, name);
-    assert.equal(pkg.version, "0.0.1");
+    assert.equal(pkg.version, "0.0.2");
     assert.equal(pkg.bin, undefined);
     assert.equal(pkg.main, undefined);
     assert.equal(pkg.exports, undefined);
