@@ -276,6 +276,27 @@ test("an obsolete reference replaced by a directory or a symlink is a refusal, n
   }
 });
 
+test("a manifest with a key that is not a clean references/ path is malformed: refused, or discarded under --force", () => {
+  for (const key of ["SKILL.md", "references/../SKILL.md", "../x", "/etc/passwd", "references\\..\\SKILL.md", "C:/x", "references/", "./references/note.md"]) {
+    withInstalled((root) => {
+      const manifestPath = path(root, COPIES[0], ".good-agent-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      manifest[key] = "0".repeat(64);
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      const skillBefore = readFileSync(path(root, COPIES[0], "SKILL.md"), "utf8");
+      const refused = init(root);
+      assert.equal(refused.status, 2, `${key}: ${refused.stderr}`);
+      assert.ok(refused.stderr.includes(".good-agent-manifest.json"), refused.stderr);
+      assert.equal(readFileSync(path(root, COPIES[0], "SKILL.md"), "utf8"), skillBefore);
+      const forced = init(root, ["--force"]);
+      assert.equal(forced.status, 0, `${key}: ${forced.stderr}`);
+      assert.equal(readFileSync(path(root, COPIES[0], "SKILL.md"), "utf8"), skillBefore, "the skill file survives cleanup");
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(manifestPath, "utf8"))), ["references/note.md"]);
+      assert.equal(init(root).status, 0);
+    });
+  }
+});
+
 test("every installed copy passes the skill validator", () => {
   withInstalled((root) => {
     for (const copy of COPIES) assert.deepEqual(validateSkillFile(path(root, copy, "SKILL.md")), [], copy);

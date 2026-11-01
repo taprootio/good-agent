@@ -13,7 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, rmdirSync, writeFileSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { parseFrontMatter } from "./markdown.mjs";
@@ -94,6 +94,18 @@ function referenceFiles(dir) {
 }
 
 /**
+ * A manifest key must name a file under references/: a relative POSIX path
+ * that is already normalized, with no `..`, backslash, leading slash or
+ * drive letter. Anything else could point cleanup at SKILL.md or outside
+ * the skill directory.
+ * @param {string} key
+ */
+function validManifestKey(key) {
+  if (key.includes("\\") || key.startsWith("/") || /^[A-Za-z]:/.test(key) || key.split("/").includes("..")) return false;
+  return posix.normalize(key) === key && key.startsWith("references/") && !key.endsWith("/");
+}
+
+/**
  * @param {string} manifestPath
  * @returns {Record<string, string>}
  */
@@ -101,9 +113,9 @@ function readManifest(manifestPath) {
   if (!existsSync(manifestPath)) return {};
   try {
     const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Object.entries(parsed).every(([k, v]) => typeof v === "string" && validManifestKey(k))) return parsed;
   } catch { /* fall through */ }
-  throw new InitRefusal(`${manifestPath} is not a valid good-agent manifest; re-run with --force to rewrite it`);
+  throw new InitRefusal(`${basename(manifestPath)} (${manifestPath}) is not a valid good-agent manifest; re-run with --force to discard it and rewrite it`);
 }
 
 /**
