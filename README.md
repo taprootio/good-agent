@@ -51,10 +51,10 @@ good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
   guidance into nested AGENTS.md files closer to the code they govern.
   docs: https://developers.openai.com/codex/guides/agents-md
 
-▲ CLAUDE.md  claude/size
-  Claude Code loads 619 lines at launch (CLAUDE.md 29 + AGENTS.md 590 via
-  @import); the docs recommend under 200 lines per file because longer files
-  reduce adherence.
+▲ AGENTS.md  claude/size
+  590 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
+  the docs recommend under 200 lines per file because longer files reduce
+  adherence. Launch set: CLAUDE.md 29 + AGENTS.md 590 = 619 lines.
   fix: Move reference material into docs/ linked by path (not @-imported), or
   into skills and path-scoped .claude/rules that load on demand.
   docs: https://code.claude.com/docs/en/memory
@@ -111,7 +111,7 @@ And in CI:
 | `codex/size-budget` | error | Every root-to-directory chain of `AGENTS.md` files fits Codex's 32 KiB combined budget. Reports where the cut lands. |
 | `claude/import-canonical` | error | `CLAUDE.md` imports the canonical file with `@path`, not a link or a sentence. |
 | `claude/import-depth` | warn | No import chain deeper than Claude's four hops. |
-| `claude/size` | warn | Claude's launch set (CLAUDE.md, imports, rules) is under 200 lines. |
+| `claude/size` | warn | Every file Claude loads at launch (CLAUDE.md, its imports, rules) is under 200 lines; the total is reported as info. |
 | `links/broken` | error | Relative links and `@` imports resolve. |
 | `copilot/applyto` | error | Path-specific instruction files have valid `applyTo` front matter. |
 | `dry/copied-canonical` | error | No tool file is a copy of the canonical file. |
@@ -153,8 +153,7 @@ file an instruction file links to, so a pre-commit hook or a
 changed-paths verifier can pass it everything and let it decide:
 
 ```sh
-changed=$(git diff --cached --name-only)
-[ -z "$changed" ] || npx --no-install good-agent check $changed
+git diff --cached --name-only -z | xargs -0 -r npx --no-install good-agent check
 ```
 
 ## What it does not do

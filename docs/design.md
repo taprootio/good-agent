@@ -256,7 +256,7 @@ the fact it rests on, and the decision on the candidate list from the brief.
 | `canonical/name` | warn | v0.1 | The canonical file is named `AGENTS.md`. Otherwise Codex (only `AGENTS.md` and user-configured fallbacks) and Copilot (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) see only a written pointer. Fix: rename and keep `CLAUDE.md` as `@AGENTS.md`. |
 | `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory (one file per directory, override preferred) totals at most `limits.codexBytes` (32,768). The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load. Source: `agents_md.rs` truncation loop. |
 | `claude/import-canonical` | error | v0.1 | If `CLAUDE.md` (or `.claude/CLAUDE.md`) exists and the canonical file is a different file, it contains an `@<canonical>` import outside code spans. A Markdown link is not enough. If there is no `CLAUDE.md` and the canonical file is not `AGENTS.md`, that is an error too (Claude loads nothing). If there is no `CLAUDE.md` and the canonical file is `AGENTS.md`, that is `info`: Claude Code 2.1.277+ reads it, older versions do not. |
-| `claude/size` | warn | v0.1 | Lines Claude Code loads at launch: `CLAUDE.md` + `CLAUDE.local.md` + `.claude/rules/*.md` without `paths`, with `@` imports expanded to four hops, each file counted once. Warn above `limits.claudeLines` (200). Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding lists each contributing file and its line count. |
+| `claude/size` | warn | v0.1 | The launch set is what Claude Code loads at startup: `CLAUDE.md` or `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` without `paths`, and their `@` imports to four hops, each file once; with no `CLAUDE.md` at all, `AGENTS.md` (the documented fallback). Warn for **each file** in that set over `limits.claudeLines` (200), which is the documented per-file target; the combined total is reported as `info` because the docs say a combined warning exists but give no number. Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding names the file, how it reaches the launch set (directly or via which import), and its line count. |
 | `links/broken` | error | v0.1 | Every relative Markdown link and every `@` import in an instruction file resolves to an existing path. Fragments are stripped; `http(s)`, `mailto` and `#` anchors are skipped; `~/` and absolute imports are skipped (they are outside the repo). Imports are resolved relative to the containing file, as the Claude docs say. A broken import is called out separately because Claude "silently loads nothing for it." |
 | `claude/import-depth` | warn | v0.1 | An import chain deeper than four hops; the docs say files past that are not loaded. Cheap to check while resolving `links/broken`. |
 | `copilot/applyto` | error | v0.1 | Every `.github/instructions/*.instructions.md` starts with front matter containing `applyTo`; `excludeAgent`, if present, is `code-review` or `cloud-agent`. Without `applyTo` Copilot never attaches the file. |
@@ -377,10 +377,10 @@ good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
   guidance into nested AGENTS.md files closer to the code they govern.
   docs: https://developers.openai.com/codex/guides/agents-md
 
-▲ CLAUDE.md  claude/size
-  Claude Code loads 619 lines at launch (CLAUDE.md 29 + AGENTS.md 590 via
-  @import); the docs recommend under 200 lines per file because longer files
-  reduce adherence.
+▲ AGENTS.md  claude/size
+  590 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
+  the docs recommend under 200 lines per file because longer files reduce
+  adherence. Launch set: CLAUDE.md 29 + AGENTS.md 590 = 619 lines.
   fix: Move reference material into docs/ linked by path (not @-imported), or
   into skills and path-scoped .claude/rules that load on demand.
   docs: https://code.claude.com/docs/en/memory
@@ -577,14 +577,15 @@ A plain git hook, no husky (Trellis has none either):
 ```sh
 #!/bin/sh
 # .githooks/pre-commit  (git config core.hooksPath .githooks)
-changed=$(git diff --cached --name-only)
-[ -z "$changed" ] || npx --no-install good-agent check $changed
+git diff --cached --name-only -z | xargs -0 -r npx --no-install good-agent check
 ```
 
-`check` with paths exits 0 at once when none of them is an instruction file or
-a link target of one, so the hook costs nothing on ordinary commits. With
-`lint-staged` the equivalent entry is
-`"*.md": "good-agent check"`.
+`check` with paths exits 0 at once when none of them is an instruction file,
+a link target of one, or the config file in effect (default or `--config`),
+so the hook costs nothing on ordinary commits. NUL-delimited paths keep a
+filename with a space as one argument, and `xargs -r` (accepted by GNU and
+BSD xargs) runs nothing on an empty commit. With `lint-staged` the
+equivalent entry is `"*.md": "good-agent check"`.
 
 ### GitHub Actions
 
@@ -797,6 +798,14 @@ repo can link to.
    repeat until `[]`, caps, design review on non-convergence, and the one
    durable record (round count, findings, independence) that goes into the
    task closeout. No model names in durable records.
+   The prompts the loop uses are files in `prompts/` that a human, a tool's
+   own subagent and the runner all read. Each is a body (the facts to
+   review, the severity semantics, the two passes, and the "close the room
+   for hedging" prohibitions from Taproot's section 8) plus one of two
+   endings the caller appends: the manual ending asks for a fenced JSON
+   array as the final block even when empty; the runner ending asks for
+   the schema object `{"findings":[...]}` that `--output-schema` and
+   `--json-schema` enforce, which the runner unwraps to the bare array.
 4. **`good-agent review`**: the runner. It spawns a fresh read-only reviewer
    as a child process and returns the findings:
 
@@ -815,7 +824,10 @@ repo can link to.
    `--output-schema` and `--json-schema`, tree digests before and after, a
    per-reviewer lock so two reviews never run at once, numbered rounds with
    `--prior`, and a reviews directory outside the tree
-   (`~/.config/good-agent/reviews/<repo-slug>/<id>-<prompt>-rN.{json,meta.json,log}`).
+   (`~/.config/good-agent/reviews/<repo-slug>/<id>-<prompt>-rN.{json,meta.json,log}`),
+   where a round is reserved by creating its `.meta.json` exclusively
+   (`wx`) before the reviewer starts, so a Codex and a Claude review of the
+   same task can never take the same round.
    Its defaults come from the `review` block of `good-agent.config.json`
    (section 4.6): `--by` from `externalReviewer` keyed by `--author`, model
    and effort from the per-tool ceiling, `--prompt` defaulting to `diff`. The
