@@ -306,8 +306,14 @@ const CLAUDE_ENTRY = /(^|\/)(CLAUDE\.md|CLAUDE\.local\.md)$|(^|\/)\.claude\/(CLA
 export function claudeImportDepth(repo, config = defaultConfig()) {
   const starts = repo.files.filter((f) => CLAUDE_ENTRY.test(f.path)).map((f) => f.path);
   // With no CLAUDE.md the launch set falls back to AGENTS.md, so it is an entry point too.
-  if (claudeLaunchSet(repo, config).fallback) starts.push("AGENTS.md");
-  return walkClaudeImports(repo, config, starts).tooDeep;
+  const launch = claudeLaunchSet(repo, config);
+  if (launch.fallback) starts.push("AGENTS.md");
+  // The multi-start walk can load a file through an on-demand entry point and
+  // hide that it is past four hops from the startup files, so the launch
+  // set's own findings come first and win a duplicate.
+  const merged = [...launch.tooDeep];
+  for (const d of walkClaudeImports(repo, config, starts).tooDeep) if (!merged.some((m) => m.file === d.file)) merged.push(d);
+  return merged;
 }
 
 /**

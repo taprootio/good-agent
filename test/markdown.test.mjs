@@ -106,8 +106,8 @@ test("a thematic break ends an inline code block, so a stray backtick does not s
 });
 
 test("a table row is its own block and code spans are blanked per cell", () => {
-  assert.deepEqual(markdownLinks("| a ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
-  assert.deepEqual(markdownLinks("| `a | b` | [x](kept.md) |\n").map((l) => l.target), ["kept.md"]);
+  assert.deepEqual(markdownLinks("| a ` | b |\n| --- | --- |\n| c ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(markdownLinks("| h | i |\n|---|---|\n| `a | b` | [x](kept.md) |\n").map((l) => l.target), ["kept.md"]);
 });
 
 test("a normal paragraph still blanks a span across lines and keeps the link outside it", () => {
@@ -155,7 +155,7 @@ test("a CRLF or whitespace-only blank line is a paragraph break for link labels"
 
 test("prose with a pipe is not a table; a header above a delimiter row is, with or without outer pipes", () => {
   assert.deepEqual(markdownLinks("Use `a | [x](missing.md)` here.\n"), []);
-  assert.deepEqual(markdownLinks("| a ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(markdownLinks("| a ` | b |\n| --- | --- |\n| c ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
   assert.deepEqual(markdownLinks("a | b\n--- | ---\n`x` | [y](t.md)\n").map((l) => l.target), ["t.md"]);
 });
 
@@ -196,4 +196,18 @@ test("front matter: a trailing comment after a quoted value is fine; errors come
   assert.equal(junk.errors.length, 2);
   assert.match(junk.errors[0], /^line 2: unterminated/);
   assert.match(junk.errors[1], /^line 3:/);
+});
+
+test("a lone leading-pipe line without a delimiter row is prose", () => {
+  assert.deepEqual(markdownLinks("| Use `a | [x](missing.md)` here.\n"), []);
+  assert.deepEqual(markdownLinks("| h | i |\n| --- | --- |\n| a ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
+});
+
+test("a fence opened after a list marker ends with the item or its closing fence", () => {
+  const src = "- ~~~\n  [x](missing.md)\n  @AGENTS.md\n  ~~~\n\n[y](outside.md)\n";
+  assert.deepEqual(markdownLinks(src).map((l) => l.target), ["outside.md"]);
+  assert.deepEqual(claudeImports(src), []);
+  assert.equal(stripCode(src).split("\n").length, src.split("\n").length);
+  assert.deepEqual(markdownLinks("1. ```js\n   [a](in.md)\n   ```\n2. [b](two.md)\n").map((l) => l.target), ["two.md"]);
+  assert.deepEqual(markdownLinks("- ~~~\n  [x](in.md)\n\n  more\n[y](out.md)\n").map((l) => l.target), ["out.md"]);
 });

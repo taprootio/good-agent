@@ -15,26 +15,31 @@
  */
 export function stripCode(src) {
   const lines = src.split("\n");
-  /** @type {{ char: string, length: number, depth: number } | null} */
+  /** @type {{ char: string, length: number, depth: number, indent: number } | null} */
   let fence = null;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     // A blockquote prefix is stripped first; a fence opened inside a quote
-    // closes only on a fenced line at the same quote depth.
+    // closes only on a fenced line at the same quote depth, and ends with
+    // the quote. A fence opened after a list marker belongs to the item: its
+    // lines must be indented to the item's content, and a non-blank line
+    // that is not ends the fence (the item ended).
     const quote = line.match(/^(\s{0,3}>\s?)+/);
     const depth = quote ? (quote[0].match(/>/g) ?? []).length : 0;
     const rest = quote ? line.slice(quote[0].length) : line;
-    const open = rest.match(/^\s{0,3}(`{3,}|~{3,})/);
-    // A quoted fence ends with the blockquote: a shallower line (a blank line
-    // or one with no `>`) closes it and is then read normally.
     if (fence && fence.depth > 0 && depth < fence.depth) fence = null;
+    if (fence && fence.indent > 0 && rest.trim() !== "" && rest.length - rest.trimStart().length < fence.indent) fence = null;
     if (fence) {
       lines[i] = " ".repeat(line.length);
-      if (open && depth === fence.depth && open[1][0] === fence.char && open[1].length >= fence.length && rest.trim() === open[1]) fence = null;
+      const close = (fence.indent > 0 ? rest.slice(fence.indent) : rest).match(/^\s{0,3}(`{3,}|~{3,})/);
+      if (close && depth === fence.depth && close[1][0] === fence.char && close[1].length >= fence.length && (fence.indent > 0 ? rest.slice(fence.indent) : rest).trim() === close[1]) fence = null;
       continue;
     }
-    if (open && !(open[1][0] === "`" && rest.slice(open[0].length).includes("`"))) {
-      fence = { char: open[1][0], length: open[1].length, depth };
+    const marker = rest.match(/^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s+/);
+    const body = marker ? rest.slice(marker[0].length) : rest;
+    const open = body.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (open && !(open[1][0] === "`" && body.slice(open[0].length).includes("`"))) {
+      fence = { char: open[1][0], length: open[1].length, depth, indent: marker ? marker[0].length : 0 };
       lines[i] = " ".repeat(line.length);
     }
   }
@@ -42,8 +47,8 @@ export function stripCode(src) {
   // (not escaped, by backslash parity) closes with the same run inside one
   // block. A blank line ends a block; an ATX heading and a list item each
   // start one, and a heading is a block of its own. A thematic break ends a
-  // block and is kept as is; a table row (starts with `|`, heads a delimiter
-  // row, or follows a table row) is a block of its own, blanked per cell.
+  // block and is kept as is; a table row (it heads a delimiter row or
+  // follows a table row) is a block of its own, blanked per cell.
   /** @type {string[]} */
   const out = [];
   /** @type {string[]} */
@@ -58,7 +63,7 @@ export function stripCode(src) {
     const item = /^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s/.test(bare);
     const rule = /^\s{0,3}([*\-_])(?:\s*\1){2,}\s*$/.test(bare);
     /** @type {boolean} */
-    const row = bare.trim().startsWith("|") || (bare.includes("|") && (inTable || nextIsDelimiter(lines, i)));
+    const row = bare.includes("|") && (inTable || nextIsDelimiter(lines, i));
     inTable = row;
     if (blank) { flush(); out.push(line); continue; }
     if (rule) { flush(); out.push(line); continue; }
