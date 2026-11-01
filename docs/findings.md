@@ -10,7 +10,7 @@ pointer, www.jeremeevans.com passes, with no noise. Result: met.
 
 Corpus commits: taproot `23496ea60` (2026-10-30), taproot-controls
 `b0f84baf`; www.jeremeevans.com is not a git repository, so its `AGENTS.md`
-is identified by size and date (13,455 bytes, modified 2026-11-01). GA0001's
+is identified by size and date (13,365 bytes, modified 2026-11-01; the file changed during the day, and the pin follows the current file because the result, no findings, did not). GA0001's
 corpus acceptance is checked at these commits.
 
 ## Summary

@@ -1,0 +1,31 @@
+#!/bin/sh
+# A fake Codex CLI for the review runner's self-test. It records every
+# invocation (argv and selected environment) to $FAKE_RECORD, answers
+# --version and `mcp list --json`, and for `exec` writes $FAKE_OUTPUT (default
+# {"findings":[]}) to the -o path after $FAKE_SLEEP seconds, optionally
+# touching $FAKE_TOUCH to simulate a tree that moved, and exits $FAKE_EXIT.
+EMPTY='{"findings":[]}'
+if [ -n "$FAKE_RECORD" ]; then
+  printf 'ARGV:%s\n' "$*" >> "$FAKE_RECORD"
+  printf 'ENV:OPENAI_API_KEY=%s CODEX_API_KEY=%s CWD=%s\n' "${OPENAI_API_KEY-unset}" "${CODEX_API_KEY-unset}" "$(pwd)" >> "$FAKE_RECORD"
+fi
+if [ "$1" = "--version" ]; then echo "codex-cli ${FAKE_VERSION:-0.156.1}"; exit 0; fi
+if [ "$1" = "mcp" ]; then
+  shift; shift; shift
+  # $FAKE_MCP is the JSON the first listing returns; a later listing with an
+  # override for each server returns an empty list unless FAKE_MCP_STUCK is set.
+  case " $* " in *"mcp_servers."*) if [ -n "$FAKE_MCP_STUCK" ]; then echo "${FAKE_MCP:-[]}"; else echo "[]"; fi ;; *) echo "${FAKE_MCP:-[]}" ;; esac
+  exit 0
+fi
+if [ "$1" = "exec" ]; then
+  out=""; prev=""
+  for a in "$@"; do if [ "$prev" = "-o" ]; then out="$a"; fi; prev="$a"; done
+  cat > /dev/null
+  if [ -n "$FAKE_SLEEP" ]; then sleep "$FAKE_SLEEP"; fi
+  if [ -n "$FAKE_TOUCH" ]; then echo moved >> "$FAKE_TOUCH"; fi
+  if [ -n "$FAKE_STDERR" ]; then echo "$FAKE_STDERR" >&2; fi
+  if [ -z "$FAKE_NO_OUTPUT" ] && [ -n "$out" ]; then printf '%s\n' "${FAKE_OUTPUT:-$EMPTY}" > "$out"; fi
+  exit "${FAKE_EXIT:-0}"
+fi
+echo "fake codex: unexpected arguments: $*" >&2
+exit 64

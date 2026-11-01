@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "good-agent review findings",
+  "description": "What a reviewer returns: an object with one key, findings, holding the canonical array. Structured output needs an object at the root; `good-agent review` validates it and unwraps it to the bare array.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "line", "severity", "suggestion"],
+        "properties": {
+          "file": { "type": "string", "description": "Repo-relative path of the file the finding cites." },
+          "line": { "type": "integer", "minimum": 1, "description": "The line in that file." },
+          "severity": { "enum": ["blocker", "warning", "nit"] },
+          "suggestion": { "type": "string", "description": "The smallest safe fix." }
+        }
+      }
+    }
+  }
+}

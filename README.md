@@ -150,6 +150,7 @@ good-agent inspect [--json]      what each tool loads, with sizes
 good-agent explain <rule>
 good-agent rules
 good-agent init --skill [--force]
+good-agent review --by codex|claude --prompt diff|story|plan|design [--base ref] [--task path] [--json]
 ```
 
 Exit codes: 0 pass, 1 findings, 2 usage or config error (including `init`
@@ -168,6 +169,33 @@ hook or a changed-paths verifier can pass it everything and let it decide.
 ```sh
 git diff --cached --name-only -z | xargs -0 -r npx --no-install good-agent check
 ```
+
+### Review runner
+
+`good-agent review` spawns a fresh, read-only review by the other AI tool
+(Codex reviews Claude's work, Claude reviews Codex's), checks the findings
+against `schema/findings.json`, and prints them. Run it as a background
+command from the authoring tool and wait for the one notification:
+
+```sh
+npx good-agent review --by codex --prompt diff --base <start sha> --task trellis/active/<id>.md --verified "npm test"
+npx good-agent review --by claude --prompt story --task trellis/active/<id>.md --json
+```
+
+`--by` defaults from `review.externalReviewer` in `good-agent.config.json`,
+keyed by `--author`; the model and effort come from the per-tool `review`
+block. Without `--json` it prints each finding (file, line, severity,
+suggestion) and the count; with it, the bare findings array. Exit codes:
+0 clean (`[]`), 1 findings, 2 usage or config error, 3 the review is unsafe
+(the tree changed while the reviewer ran) or the reviewer failed.
+
+Rounds, metadata and logs are kept outside the tree in
+`~/.config/good-agent/reviews/` (`GOOD_AGENT_REVIEWS` overrides it). Several
+lanes, in worktrees or in separate clones, share that directory by default
+and can start reviews whenever they are ready: a lock per reviewer makes a
+second review by the same tool wait its turn (`--no-wait` fails fast
+instead), and each review takes its own round number. Every flag, the hardened invocations and the history
+layout are in [docs/review-runner.md](docs/review-runner.md).
 
 ## What it does not do
 

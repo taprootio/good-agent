@@ -707,13 +707,17 @@ trees.
   generated markers), `src/rules/<area>/<name>.mjs` (one file per rule
   exporting `{ id, severity, since, docs, rationale, fix, run(ctx) }`; `docs[0]`
   is the primary page and the only one human output prints), `src/report.mjs`
-  (human and JSON), `src/review.mjs` (the runner, section 12),
-  `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task` and
+  (human and JSON), `src/review.mjs` (the runner, section 12) with
+  `src/review-store.mjs` (reviews directory, ids, round reservation, lock and
+  tree digest), `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task` and
   `review-loop`, with the four review prompts at
   `skill/review-loop/references/review-{diff,story,plan,design}.md` so
   they install with the skill,
   `schema/config.json`, `schema/findings.json`, `alias/package.json`,
-  `CHANGELOG.md`, `test/`, `docs/`.
+  `CHANGELOG.md`, `test/` (with `test/fakes/`, the fake `codex` and `claude`
+  executables the runner's self-test puts first on `PATH`), `docs/` (with
+  `docs/review-runner.md`, the runner's command reference), and
+  `scripts/live-denial.mjs`, the opt-in live probe that is never in CI.
 - **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
   Trellis. No build step, so the published files are the tested files and
   `npx` runs them directly. Type checking runs with `tsc --noEmit` over the
@@ -854,9 +858,12 @@ repo can link to.
    as a child process and returns the findings:
 
    ```
-   good-agent review --by codex|claude [--prompt diff|story|plan|design]
+   good-agent review [--by codex|claude] [--author codex|claude]
+                     [--prompt diff|story|plan|design]
                      [--base <ref>] [--task <path>] [--prior <findings.json>]
-                     [--model <m>] [--effort <e>] [--timeout-minutes 45] [--json]
+                     [--verified "<command>"]... [--model <m>] [--effort <e>]
+                     [--timeout-minutes 45] [--no-wait] [--json]
+                     [--cwd <dir>] [--config <file>]
    ```
 
    It carries over what Taproot's exchange already worked out: the hardened
@@ -865,7 +872,10 @@ repo can link to.
    mode with Read, Grep, Glob and a Bash that Claude's own read-only command
    validation restricts under `dontAsk`, and no Edit, Write or Agent), the
    findings schema through
-   `--output-schema` and `--json-schema`, tree digests before and after, a
+   `--output-schema` and `--json-schema`, tree digests before and after (the
+   digest covers `HEAD`, the index from `git write-tree`, the porcelain
+   status and the content of every tracked and unignored untracked file, so
+   an empty commit or a staged change voids a round too), a
    per-reviewer lock so two reviews by the same reviewer never run at once,
    numbered rounds with
    `--prior`, and a reviews directory outside the tree
@@ -895,6 +905,9 @@ repo can link to.
    history. The per-reviewer lock lives at the reviews root, so two reviews
    by the same reviewer never run at once, even across repositories. Review exit codes:
    0 clean, 1 findings, 2 usage or config, 3 unsafe or reviewer failure.
+   [review-runner.md](review-runner.md) has the flag reference, the hardened
+   invocations with dated citations, and the table that maps each check of
+   Taproot's exchange self-test to its replacement.
 
 ### The watcher question
 

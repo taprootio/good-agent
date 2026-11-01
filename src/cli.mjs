@@ -22,6 +22,7 @@ Usage:
   good-agent explain <rule>
   good-agent rules
   good-agent init --skill [--force]
+  good-agent review --by codex|claude --prompt diff|story|plan|design [options]
 
 check options:
   --json              machine-readable output (includes info findings)
@@ -41,6 +42,9 @@ instruction file links to or imports, or the config file; otherwise it prints
 from the repository root down to its working directory, and a link starting
 with / resolves from the root, so run from the repository root to validate the
 whole Codex chain and root-relative links.
+
+review runs a fresh read-only review by the other AI tool and prints the
+findings (flags and exit codes: docs/review-runner.md).
 
 Exit codes: 0 pass, 1 findings, 2 usage or config error (including init
 refusing to overwrite an edited skill copy), 3 internal error.

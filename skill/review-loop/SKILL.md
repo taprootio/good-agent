@@ -91,25 +91,29 @@ is `{file, line, severity, suggestion}` with the smallest safe fix.
 
 ## Running the external round
 
-The runner, `good-agent review` (GA0004), is what this section describes
-once it ships:
+With good-agent installed, `good-agent review` runs it:
 
 ```
 npx good-agent review --by codex --prompt diff --base <start sha> --task trellis/active/<id>.md --verified "npm test"
 npx good-agent review --by codex --prompt story --task trellis/active/<id>.md
 ```
 
-`--by` defaults from the `review` block of `good-agent.config.json`
+Run it as a background command and wait for the one notification. Add
+`--prior <findings.json>` from round two on and `--json` to print the bare
+array. `--by` defaults from the `review` block of `good-agent.config.json`
 (`externalReviewer` keyed by `--author`), as do the model and effort. The
 runner appends the runner ending, spawns the reviewer fresh in a read-only
 sandbox, strips API keys, records tree digests, reserves a numbered round,
-validates the findings and prints them (`--json` for the bare array).
-History lives outside the tree under `~/.config/good-agent/reviews/`.
+validates the findings and prints them. Exit 0 is clean, 1 has findings,
+2 is a usage or config error, 3 means the tree moved or the reviewer
+failed: the round keeps its number, does not count toward the caps, and is
+filed again. History lives outside the tree under
+`~/.config/good-agent/reviews/`; the flags are in
+[docs/review-runner.md](https://github.com/taprootio/good-agent/blob/main/docs/review-runner.md).
 
-Until `good-agent review` is available, or without good-agent installed,
-run the other tool's CLI by hand. Build the prompt from the same file with
-the manual ending, feed it on standard input, and take the final fenced
-JSON array as the findings, for example
+Without good-agent installed, run the other tool's CLI by hand. Build the
+prompt from the same file with the manual ending, feed it on standard
+input, and take the final fenced JSON array as the findings, for example
 `codex exec --sandbox read-only -c approval_policy="never" - < prompt.txt`.
 Compute the tree digest yourself before and after, the way the runner
 does: hash together, each part delimited, the HEAD commit (`git rev-parse

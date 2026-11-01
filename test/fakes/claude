@@ -1,0 +1,16 @@
+#!/bin/sh
+# A fake Claude Code CLI for the review runner's self-test. Records the
+# invocation to $FAKE_RECORD, answers --version, reads the prompt from stdin
+# and prints a result envelope whose structured_output is $FAKE_OUTPUT.
+EMPTY='{"findings":[]}'
+if [ -n "$FAKE_RECORD" ]; then
+  printf 'ARGV:%s\n' "$*" >> "$FAKE_RECORD"
+  printf 'ENV:ANTHROPIC_API_KEY=%s CWD=%s\n' "${ANTHROPIC_API_KEY-unset}" "$(pwd)" >> "$FAKE_RECORD"
+fi
+if [ "$1" = "--version" ]; then echo "${FAKE_VERSION:-2.1.310} (Claude Code)"; exit 0; fi
+cat > /dev/null
+if [ -n "$FAKE_SLEEP" ]; then sleep "$FAKE_SLEEP"; fi
+if [ -n "$FAKE_TOUCH" ]; then echo moved >> "$FAKE_TOUCH"; fi
+if [ -n "$FAKE_RAW_STDOUT" ]; then printf '%s\n' "$FAKE_RAW_STDOUT"; exit "${FAKE_EXIT:-0}"; fi
+printf '{"type":"result","subtype":"success","is_error":false,"structured_output":%s}\n' "${FAKE_OUTPUT:-$EMPTY}"
+exit "${FAKE_EXIT:-0}"
