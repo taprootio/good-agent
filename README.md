@@ -12,7 +12,7 @@ If your repo has an `AGENTS.md` for Codex, a `CLAUDE.md` for Claude Code and a
 apart, grow past what the tools will read, and point at files that no longer
 exist. Keeping AI tool instructions DRY is just as important as keeping code DRY.
 
-`good-agent` is two things:
+`good-agent` is three things:
 
 - **A guard.** `good-agent check` fails when an instruction file breaks a rule
   that comes from the tools' own documentation: Codex truncates `AGENTS.md`

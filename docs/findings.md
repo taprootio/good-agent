@@ -8,6 +8,11 @@ prototype's, trimmed only of the per-file size listing.
 Target from the brief: Taproot fails on size, taproot-controls fails on the
 pointer, www.jeremeevans.com passes, with no noise. Result: met.
 
+Corpus commits: taproot `23496ea60` (2026-10-30), taproot-controls
+`b0f84baf`; www.jeremeevans.com is not a git repository, so its `AGENTS.md`
+is identified by size and date (13,455 bytes, modified 2026-11-01). GA0001's
+corpus acceptance is checked at these commits.
+
 ## Summary
 
 | Rule | taproot | taproot-controls | www.jeremeevans.com |

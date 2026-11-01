@@ -8,7 +8,7 @@ The first round of questions was answered on 2026-11-01; the answers are in
 1. **Trellis's own playbooks.** good-agent's `work-task` and Trellis's cover
    the same loop. The proposed split is Trellis owns the backlog lifecycle
    and good-agent owns the working and reviewing loop, with Trellis's
-   review steps deferring to good-agent's `review-loop.md` when it is
+   review steps deferring to good-agent's `review-loop` skill when it is
    installed. That is a change to the Trellis repo. Agree, or keep the loop
    in Trellis and have good-agent ship only the runner?
 2. **Where review history lives.** The runner writes findings, meta and logs

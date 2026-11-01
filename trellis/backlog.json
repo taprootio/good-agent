@@ -99,7 +99,7 @@
       ],
       "owner": "je",
       "collaborators": [],
-      "summary": "Point taproot and taproot-controls at the published playbooks, skill and review runner, delete the process text and exchange scripts they duplicate, and fix the findings the guard reports in each repo."
+      "summary": "Point taproot and taproot-controls at the published skills and review runner, delete the process text and exchange scripts they duplicate, and fix the errors the guard reports in each repo."
     }
   ]
 }

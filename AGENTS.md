@@ -38,10 +38,11 @@ Good tools make hard work easy. Bad tools make easy work hard.
 - Commit messages and PR descriptions carry no AI attribution: no
   `Co-Authored-By:` trailers, no "Generated with" footers. The repo's own
   `attribution` value below is `none`.
-- Work a task with the loop in `trellis/playbooks/work-task.md`: ground in
-  this file, read the task, plan, implement on a branch, review internally
-  in a fresh context until clean, then externally with the other AI tool
-  until clean, then hand off. Never push or publish without the owner.
+- Work a task with the loop in `trellis/playbooks/work-task.md`, plus an
+  external review by the other AI tool after the internal review is clean
+  (that playbook has only the internal pass). When the `work-task` and
+  `review-loop` skills from GA0003 land, this bullet points at them instead.
+  Never push or publish without the owner.
 - Prose style: plain words, short sentences, no em dashes. Code, commands and
   error text go in fenced blocks.
 
@@ -80,7 +81,7 @@ contract, then set these to match your tooling:
 | `regenerate` | `npx @taprootio/trellis generate` |
 | `check` | `npx @taprootio/trellis check` |
 | `branch-naming` | `<initials>/<id-lowercase>/<slug>` (e.g. `je/ga0001/short-slug`) |
-| `gates` | `npx @taprootio/trellis check` + `node --test` + `node scripts/good-agent.mjs check` once the guard exists |
+| `gates` | `npx @taprootio/trellis check` + `node --test` + `npm run typecheck` + `node scripts/good-agent.mjs check` once the guard exists |
 | `attribution` | none — no `Co-Authored-By:` trailers or "Generated with …" footers |
 
 See `trellis/playbooks/` for the work-a-task and code-review loops.

@@ -335,8 +335,9 @@ good-agent rules
     List rules with default severity and whether they are on.
 
 good-agent init [--skill] [--config] [--hook] [--ci]
-    --skill writes skill/good-agent/SKILL.md into .agents/skills/good-agent/
-    and .claude/skills/good-agent/ (two copies, both marked generated).
+    --skill copies every shipped skill into .agents/skills/<name>/ and
+    .claude/skills/<name>/ (two copies, both marked generated, see 5.3);
+    --force overwrites a hand-edited copy.
     --config writes a commented good-agent.config.json with defaults.
     --hook and --ci print the snippets from section 6 (they do not edit
     .git/hooks or workflows).
@@ -346,6 +347,12 @@ Options for `check`: `--json`, `--verbose` (show `info`), `--strict` (warnings
 fail), `--config <file>`, `--cwd <dir>`, `--rule <id>` (repeatable, run only
 these), `--no-rule <id>` (repeatable), `--quiet` (summary line only),
 `--no-color`.
+
+The repo root is `--cwd` or, without it, the current directory. good-agent
+never walks up to the git top level: discovery, the Codex chain and the JSON
+`root` all start there, and running it from a subdirectory checks that
+subdirectory as a root. That matches how Codex treats the directory it is
+started in and keeps the empty-directory case well defined.
 
 ### 4.3 Exit codes
 
@@ -446,7 +453,7 @@ Everything is optional; the file is optional.
   },
   "rules": {
     "canonical/name": "off",
-    "claude/size": { "severity": "info", "maxLines": 300 }
+    "claude/size": "info"
   },
   "review": {
     "externalReviewer": { "claude": "codex", "codex": "claude" },
@@ -663,7 +670,7 @@ trees.
   dispatcher), `src/cli.mjs`, `src/config.mjs`, `src/discover.mjs`,
   `src/markdown.mjs` (code-span stripping, links, imports, front matter,
   generated markers), `src/rules/<area>/<name>.mjs` (one file per rule
-  exporting `{ id, severity, since, docs, run(ctx) }`), `src/report.mjs`
+  exporting `{ id, severity, since, docs, rationale, fix, run(ctx) }`), `src/report.mjs`
   (human and JSON), `skill/good-agent/SKILL.md`, `schema/config.json`,
   `test/`, `docs/`.
 - **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
@@ -782,7 +789,7 @@ repo can link to.
    durable record (round count, findings, independence) that goes into the
    task closeout. No model names in durable records.
 4. **`good-agent review`**: the runner. It spawns a fresh read-only reviewer
-   in-process and returns the findings:
+   as a child process and returns the findings:
 
    ```
    good-agent review --by codex|claude [--prompt diff|story|plan|design]
@@ -804,8 +811,14 @@ repo can link to.
    (section 4.6): `--by` from `externalReviewer` keyed by `--author`, model
    and effort from the per-tool ceiling, `--prompt` defaulting to `diff`. The
    same policy is stated in prose for AI tools in a
-   `<!-- BEGIN GOOD-AGENT -->` block in AGENTS.md that `init` writes, kept
-   separate from the Trellis block so neither generator overwrites the other.
+   `<!-- BEGIN GOOD-AGENT -->` block in AGENTS.md, hand-written in v0.1 from
+   the template in `skill/review-loop/SKILL.md` (`init --config` writes it
+   in v0.2), kept separate from the Trellis block so neither generator
+   overwrites the other. Without `--json` the command prints a human summary
+   (file, line, severity, suggestion per finding, then the count); with it,
+   the bare array. The history file always holds the array. Rounds are
+   numbered per task and prompt type (`<id>-<prompt>-rN`) so story, plan and
+   diff rounds keep separate counters and the caps apply per direction.
    The reviews directory is keyed by the repository, not the worktree:
    `<repo-slug>` is the basename of the git common directory's parent plus a
    short hash of its absolute path, so every worktree of one clone shares a
@@ -834,7 +847,7 @@ it returns, exactly as it waits on `wait.mjs` today, minus the terminal tab
 and the polling loop. The review history is still written (findings, meta,
 log, per round), because the runner writes it, not the watcher. The history
 is useful for the handoff and the PR body (rounds, counts, what was waived),
-and `review-loop.md` says what from it goes into the task closeout. A
+and the `review-loop` skill says what from it goes into the task closeout. A
 `--watch` mode can stay for people who want one host process serving many
 lanes, but it is the exception.
 
