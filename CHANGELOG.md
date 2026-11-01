@@ -6,7 +6,7 @@ shape and the config schema are the public API (docs/design.md section 8):
 a new rule ships at `warn` or `info` in a minor version and becomes `error`
 only in a major; a limit changes in a minor with the doc link and date here.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-01)
 
 First release.
 
