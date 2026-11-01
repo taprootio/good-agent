@@ -43,7 +43,12 @@ export function renderRecipes() {
   for (const rule of RULES) {
     out.push(`### \`${rule.id}\` (${rule.severity})`, "");
     out.push(wrap(rule.rationale, WIDTH, ""), "");
-    out.push(wrap(`Fix: ${rule.fix}`, WIDTH, ""), "");
+    const [first, ...rest] = rule.fix.split("\n");
+    out.push(wrap(`Fix: ${first}`, WIDTH, ""));
+    // Later lines of a multi-line fix are literal text (a front matter
+    // example, say): fence them so `---` cannot become a setext heading.
+    if (rest.length > 0) out.push("```", ...rest, "```");
+    out.push("");
   }
   return out.join("\n");
 }

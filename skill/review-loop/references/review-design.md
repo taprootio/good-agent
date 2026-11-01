@@ -17,9 +17,11 @@ convention and patching will not fix it; warning = a design choice with a
 bounded failure path or a cost the task does not acknowledge; nit = a
 definite small improvement with no failure path.
 
-Report with precise references to the refinement notes, the plan or the
-implementation, and concrete changes to the design. Do not report style
-preferences or speculative concerns without a concrete failure path.
+Report only actionable defects in the design behind {{TASK}} and its cited
+contracts; do not expand into pre-existing or unrelated code. Cite precise
+references to the refinement notes, the plan or the implementation, and
+propose concrete changes to the design. Do not report style preferences or
+speculative concerns without a concrete failure path.
 
 <!-- ENDING: manual -->
 End with exactly one fenced json block and nothing after it. The block

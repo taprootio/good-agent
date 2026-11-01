@@ -42,7 +42,8 @@ from the repository root down to its working directory, and a link starting
 with / resolves from the root, so run from the repository root to validate the
 whole Codex chain and root-relative links.
 
-Exit codes: 0 pass, 1 findings, 2 usage or config error, 3 internal error.
+Exit codes: 0 pass, 1 findings, 2 usage or config error (including init
+refusing to overwrite an edited skill copy), 3 internal error.
 `;
 
 /**

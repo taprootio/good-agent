@@ -24,6 +24,9 @@ Review in two passes:
 2. Refinement decisions: are the recorded decisions consistent with the
    design and with the other stories.
 
+Every blocker and warning names a concrete failure path; do not report
+style preferences or speculative concerns without one.
+
 Report only actionable defects in the plan or refinements. For every
 finding cite the repo-relative file and line and state the smallest safe
 fix.

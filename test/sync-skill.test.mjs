@@ -36,3 +36,14 @@ test("--check exits 1 on a copy whose recipes block was blanked, and a plain run
     assert.equal(sync(["--check", file]).status, 2);
   } finally { tree.cleanup(); }
 });
+
+test("the generated recipes never put a bare --- line outside a code fence (it would read as a setext heading)", () => {
+  const text = readFileSync(join(REPO, "skill", "good-agent", "SKILL.md"), "utf8");
+  const block = text.slice(text.indexOf("<!-- BEGIN RECIPES -->"), text.indexOf("<!-- END RECIPES -->"));
+  let fenced = false;
+  for (const line of block.split("\n")) {
+    if (line.startsWith("```")) fenced = !fenced;
+    else if (!fenced) assert.notEqual(line.trim(), "---");
+  }
+  assert.equal(fenced, false);
+});

@@ -29,6 +29,18 @@ one JSON array. The loop ends when that array is empty.
 - The repository's conventions: the canonical instruction file first.
 - Prior findings, when this is round two or later.
 
+### Building a prompt
+
+The body is the text of the prompt file before the first `<!-- ENDING:`
+marker. Fill `{{TASK}}` (the story path), `{{BASE}}` and `{{HEAD}}` (the
+commits), `{{VERIFIED}}` (the commands already run), `{{CHANGED}}`
+(`git diff --name-status` against the base plus untracked files),
+`{{PRIOR}}` (the previous round's findings, or empty), `{{BASE_CLAUSE}}`
+(design prompt only) and `{{AUTHOR_CONTEXT}}` (one sentence saying which
+tool authored the change and that the internal review is clean, never a
+summary of the change). Then append exactly one ending section, without its
+marker comments.
+
 ## The loop
 
 1. **Fresh context.** Dispatch the review to a context with none of the
@@ -79,7 +91,8 @@ is `{file, line, severity, suggestion}` with the smallest safe fix.
 
 ## Running the external round
 
-With good-agent installed:
+The runner, `good-agent review` (GA0004), is what this section describes
+once it ships:
 
 ```
 npx good-agent review --by codex --prompt diff --base <start sha> --task trellis/active/<id>.md --verified "npm test"
@@ -88,16 +101,19 @@ npx good-agent review --by codex --prompt story --task trellis/active/<id>.md
 
 `--by` defaults from the `review` block of `good-agent.config.json`
 (`externalReviewer` keyed by `--author`), as do the model and effort. The
-runner spawns the reviewer fresh in a read-only sandbox, strips API keys,
-records tree digests, reserves a numbered round, validates the findings
-and prints them (`--json` for the bare array). History lives outside the
-tree under `~/.config/good-agent/reviews/`.
+runner appends the runner ending, spawns the reviewer fresh in a read-only
+sandbox, strips API keys, records tree digests, reserves a numbered round,
+validates the findings and prints them (`--json` for the bare array).
+History lives outside the tree under `~/.config/good-agent/reviews/`.
 
-Without good-agent installed, run the other tool's CLI by hand with the
-same prompt file from `references/` and the runner ending, for example
-`codex exec --sandbox read-only --ignore-rules -c approval_policy="never"
---output-schema <schema> -o <out> - < prompt.txt`, and check the tree
-digest yourself before and after.
+Until `good-agent review` is available, or without good-agent installed,
+run the other tool's CLI by hand. Build the prompt from the same file with
+the manual ending, feed it on standard input, and take the final fenced
+JSON array as the findings, for example
+`codex exec --sandbox read-only -c approval_policy="never" - < prompt.txt`.
+Check the tree digest (`git status --porcelain` and `git diff | shasum`)
+yourself before and after: a reviewer that changed the tree failed the
+round.
 
 ## The durable record
 

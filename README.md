@@ -85,7 +85,8 @@ npx good-agent init --skill
 ```
 
 This installs the skills into `.agents/skills/` and `.claude/skills/` as
-generated copies; `--force` overwrites a copy you edited.
+generated copies. Each copy carries a generated marker with a hash, and
+`init` exits 2 naming a copy you edited unless you pass `--force`.
 
 And in CI:
 
@@ -148,10 +149,11 @@ good-agent check [--json] [--strict] [--verbose] [--rule id] [--config file] [--
 good-agent inspect [--json]      what each tool loads, with sizes
 good-agent explain <rule>
 good-agent rules
-good-agent init --skill
+good-agent init --skill [--force]
 ```
 
-Exit codes: 0 pass, 1 findings, 2 usage or config error.
+Exit codes: 0 pass, 1 findings, 2 usage or config error (including `init`
+refusing to overwrite an edited skill copy).
 
 `check` looks at the directory it runs in (or `--cwd`). Codex loads
 `AGENTS.md` files from the repository root down to its working directory,

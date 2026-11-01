@@ -170,9 +170,11 @@ file. Without applyTo, Copilot never attaches the file. excludeAgent, when prese
 code-review or cloud-agent.
 
 Fix: Start the file with a front matter block:
+```
 ---
 applyTo: "**/*.ts"
 ---
+```
 
 ### `dry/copied-canonical` (error)
 

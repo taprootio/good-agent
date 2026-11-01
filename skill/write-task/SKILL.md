@@ -64,8 +64,10 @@ the reason recorded.
 ## 4. Finalize
 
 - Put the story where the repository keeps tasks; with Trellis, under the
-  backlog root's `active/`, then run the repository's regenerate command
-  (its `regenerate` seam point).
+  backlog root's `active/`. Regenerate the backlog and run its check (the
+  repository's `regenerate` and `check` seam points, read from the Loop
+  contract table in the canonical file); without Trellis, record the task
+  where this repository keeps tasks.
 - Record the review rounds in the story's Notes or in the repository's
   review record: independence, rounds per loop, dispositions. No model or
   vendor names.

@@ -40,8 +40,20 @@ test("consumer fixture: installed skills keep their marker and every relative li
       }
     }
     assert.ok(checked >= 8, `expected the review-loop prompt links in both copies, saw ${checked} links`);
-    const diff = readFileSync(join(tree.root, ".agents", "skills", "review-loop", "references", "review-diff.md"), "utf8");
-    assert.ok(diff.includes("<!-- ENDING: runner -->"));
-    assert.ok(diff.includes("<!-- ENDING: manual -->"));
+    // Every prompt the other skills name by code span resolves against the
+    // installed review-loop directory, in both install roots.
+    for (const base of [".agents/skills", ".claude/skills"]) {
+      const loopDir = join(tree.root, ...base.split("/"), "review-loop");
+      for (const name of ["work-task", "write-task"]) {
+        const text = readFileSync(join(tree.root, ...base.split("/"), name, "SKILL.md"), "utf8");
+        const named = [...text.matchAll(/`(references\/review-[a-z]+\.md)`/g)].map((m) => m[1]);
+        assert.ok(named.length > 0, `${base}/${name} names no review prompt`);
+        for (const rel of named) assert.ok(existsSync(join(loopDir, ...rel.split("/"))), `${base}/${name}: ${rel} does not resolve in review-loop`);
+      }
+      for (const prompt of ["diff", "story", "plan", "design"]) {
+        const ref = readFileSync(join(loopDir, "references", `review-${prompt}.md`), "utf8");
+        for (const marker of ["<!-- ENDING: manual -->", "<!-- ENDING: runner -->", "<!-- END ENDING -->"]) assert.ok(ref.includes(marker), `${base}: review-${prompt}.md lacks ${marker}`);
+      }
+    }
   } finally { tree.cleanup(); }
 });

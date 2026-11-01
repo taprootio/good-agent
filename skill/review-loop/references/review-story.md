@@ -26,6 +26,9 @@ Review in two passes:
 2. Workability: could a fresh implementer with only these files start the
    story and know when it is done; where would they have to guess.
 
+Every blocker and warning names a concrete failure path; do not report
+style preferences or speculative concerns without one.
+
 Report only actionable defects in the story or the documents it cites. For
 every finding cite the repo-relative file and line and state the smallest
 safe fix.

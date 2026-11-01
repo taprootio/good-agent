@@ -2,11 +2,12 @@
 name: work-task
 description: Take a backlog task from active to ready for the owner's
   review: ground in the repository's conventions, read and verify the task,
-  plan with checkpoints, review the plan internally then externally, branch,
-  dispatch bounded slices at the least-cost runtime that meets the quality
-  floor, implement, review the work internally until clean and externally
-  until clean, close out and hand off without pushing. Use when asked to
-  work on, implement, tackle or finish a task, story or backlog item.
+  propose refinements, branch, write the plan into the task, review the plan
+  internally then externally, dispatch bounded slices at the least-cost
+  runtime that meets the quality floor, implement, review the work
+  internally until clean and externally until clean, close out and hand off
+  without pushing. Use when asked to work on, implement, tackle or finish a
+  task, story or backlog item.
 license: MIT
 metadata:
   package: good-agent
@@ -51,14 +52,16 @@ the base for every diff review.
 
 On the branch, fold the refinements into the task's Scope, Notes and Risks
 and add a `## Plan` section: ordered steps with commit checkpoints and the
-narrow check that proves each. Regenerate the backlog (the `regenerate`
-seam point) and commit. This refined file is the source of truth for the
-rest of the loop.
+narrow check that proves each. Regenerate the backlog and run its check
+(the repository's `regenerate` and `check` seam points, read from the Loop
+contract table in the canonical file); without Trellis, record the task
+where this repository keeps tasks. Commit. This refined file is the source
+of truth for the rest of the loop.
 
 ## 6. Review the plan
 
 Run the `review-loop` skill with the plan prompt
-(`references/review-plan.md`), internally until `[]`, then externally by
+(`references/review-plan.md` in that skill), internally until `[]`, then externally by
 the other AI tool until `[]`. Fold the findings into the task file and
 commit.
 
@@ -89,7 +92,7 @@ repository's `gates` seam point) for the final reviewed candidate.
 ## 9. Review the work
 
 Run the `review-loop` skill with the diff prompt
-(`references/review-diff.md`) against the branch's starting commit, naming
+(`references/review-diff.md` in that skill) against the branch's starting commit, naming
 the task file: internally in a fresh context until `[]` (cap five passes,
 then a focused confirmation), then externally by the other AI tool until
 `[]`, confirming each round's fixes internally. Run the narrow checks after
@@ -101,7 +104,8 @@ On the branch, in the same change as the work: move the task to the
 completed location (Trellis: `completed/tasks/`), set `status: completed`
 and `completed_on`, record the starting commit and the review rounds and
 dispositions (independence, counts, what was rejected or waived and by
-whom; no model or vendor names), regenerate, commit.
+whom; no model or vendor names), regenerate the backlog and run its check
+(the `regenerate` and `check` seam points), commit.
 
 ## 11. Hand off
 

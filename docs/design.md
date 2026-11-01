@@ -536,7 +536,7 @@ lines; the spec ceiling is 500.
 
 Body, in order:
 
-1. **The layout** (section 2 in four bullets) and why: what each tool loads,
+1. **The layout** (section 2 in five bullets) and why: what each tool loads,
    with the numbers.
 2. **Set up a repo**: create or rename to `AGENTS.md`; write `CLAUDE.md` as
    `@AGENTS.md` plus Claude-only notes; write
