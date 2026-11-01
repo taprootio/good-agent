@@ -1,6 +1,6 @@
 {
   "name": "@taprootio/good-agent",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Placeholder for good-agent, which keeps AI tool instruction files DRY and inside what each tool actually loads. The first real release is 0.1.0.",
   "license": "MIT",
   "homepage": "https://github.com/taprootio/good-agent#readme",

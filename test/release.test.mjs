@@ -40,7 +40,7 @@ test("placeholders are README-only: no bin, no main, files is README.md", () => 
   for (const [dir, name] of [["good-agent", "good-agent"], ["scoped", "@taprootio/good-agent"]]) {
     const pkg = readJson(`placeholder/${dir}/package.json`);
     assert.equal(pkg.name, name);
-    assert.equal(pkg.version, "0.0.1");
+    assert.equal(pkg.version, "0.0.2");
     assert.equal(pkg.bin, undefined);
     assert.equal(pkg.main, undefined);
     assert.equal(pkg.exports, undefined);
@@ -145,7 +145,7 @@ test("release.yml: every expression names an existing output, job or step", () =
   for (const l of lines) assert.equal((l.length - l.trimStart().length) % 2, 0, `even indentation: ${l}`);
 });
 
-test("CHANGELOG.md has the unreleased 0.1.0 entry naming all nine rules", () => {
+test("CHANGELOG.md has the 0.1.0 entry naming all nine rules", () => {
   const log = readText("CHANGELOG.md");
   assert.match(log, /^## 0\.1\.0\b/m);
   const ids = [...readText("src/rules/index.mjs").matchAll(/^import \w+ from "\.\/(\w+\/[\w-]+)\.mjs";$/gm)].map((m) => m[1]).filter((id) => id !== "types");

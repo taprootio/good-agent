@@ -3,7 +3,7 @@
 Keep your AI tool instruction files DRY and inside what the tools
 actually load.
 
-> Status: design stage. Nothing is published yet. See [docs/design.md](docs/design.md).
+> Status: 0.1.0 is the first release. Run `npx good-agent check` in your repo. Design notes live in [docs/design.md](docs/design.md).
 
 Good tools make hard work easy. Bad tools make easy work hard.
 
