@@ -21,6 +21,6 @@ generated; do not hand-edit between the markers — edit the per-item files in
 
 | ID | Title | Owner | Priority | Effort |
 | --- | --- | --- | --- | --- |
-| [GA0006](active/GA0006.md) | Adopt good-agent in taproot and taproot-controls and remove the duplicates | je | Medium | 3 |
+| [GA0006](active/GA0006.md) | Adopt good-agent in taproot and taproot-controls and remove the duplicates | je | Medium | 8 |
 
 <!-- END GENERATED:MILESTONES -->

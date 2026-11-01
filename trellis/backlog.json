@@ -91,7 +91,7 @@
       "status": "active",
       "milestone": "Beta",
       "priority": "Medium",
-      "effort": 3,
+      "effort": 8,
       "depends_on": [
         "GA0002",
         "GA0004",

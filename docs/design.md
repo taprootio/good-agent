@@ -334,7 +334,7 @@ good-agent explain <rule>
 good-agent rules
     List rules with default severity and whether they are on.
 
-good-agent init [--skill] [--config] [--hook] [--ci]
+good-agent init [--skill] [--config] [--hook] [--ci]     (--config, --hook, --ci: v0.2)
     --skill copies every shipped skill into .agents/skills/<name>/ and
     .claude/skills/<name>/ (two copies, both marked generated, see 5.3);
     --force overwrites a hand-edited copy.
@@ -546,7 +546,9 @@ Body, in order:
    `good-agent explain`.
 6. **Do not**: copy the canonical file into a tool file; raise a tool's limit
    in user config as the fix for a repo problem; link with `@` to anything
-   but the canonical file; put rules in a generated block.
+   but the canonical file; hand-edit another tool's generated block (for
+   example Trellis's). The `GOOD-AGENT` block is the one place for
+   good-agent's own review policy.
 
 ### 5.3 Installation
 
@@ -576,7 +578,7 @@ A plain git hook, no husky (Trellis has none either):
 #!/bin/sh
 # .githooks/pre-commit  (git config core.hooksPath .githooks)
 changed=$(git diff --cached --name-only)
-[ -n "$changed" ] && npx --no-install good-agent check $changed
+[ -z "$changed" ] || npx --no-install good-agent check $changed
 ```
 
 `check` with paths exits 0 at once when none of them is an instruction file or
@@ -670,9 +672,13 @@ trees.
   dispatcher), `src/cli.mjs`, `src/config.mjs`, `src/discover.mjs`,
   `src/markdown.mjs` (code-span stripping, links, imports, front matter,
   generated markers), `src/rules/<area>/<name>.mjs` (one file per rule
-  exporting `{ id, severity, since, docs, rationale, fix, run(ctx) }`), `src/report.mjs`
-  (human and JSON), `skill/good-agent/SKILL.md`, `schema/config.json`,
-  `test/`, `docs/`.
+  exporting `{ id, severity, since, docs, rationale, fix, run(ctx) }`; `docs[0]`
+  is the primary page and the only one human output prints), `src/report.mjs`
+  (human and JSON), `src/review.mjs` (the runner, section 12),
+  `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task` and
+  `review-loop`, `prompts/review-{diff,story,plan,design}.md`,
+  `schema/config.json`, `schema/findings.json`, `alias/package.json`,
+  `CHANGELOG.md`, `test/`, `docs/`.
 - **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
   Trellis. No build step, so the published files are the tested files and
   `npx` runs them directly. Type checking runs with `tsc --noEmit` from a
@@ -683,8 +689,10 @@ trees.
   `node:fs`, `node:path`, `node:util.parseArgs` for flags, `node:test` for
   tests. The directory walk is hand-written (`fs.glob` is still marked
   experimental in the Node 22 line, and the walk also has to honour the
-  ignore list). Front matter is the flat `key: value` subset that Copilot
-  and the skills spec use; no YAML parser. Glob matching for `ignore` is a
+  ignore list). Front matter is the subset Copilot and the skills spec
+  use: `key: value` lines, indented continuation lines folded into the
+  previous value, and one level of nested map (`metadata:`); no YAML
+  parser, and anything deeper is a validation error. Glob matching for `ignore` is a
   small translator to `RegExp` covering `*`, `**` and `?`.
 - **Engines**: `node >= 22`.
 - **License: MIT.** Trellis is MIT under "Taproot IO, LLC"; the article's
@@ -753,7 +761,8 @@ copies from taproot and taproot-controls.
   numbered, prior findings are passed to the next round, and the direction
   caps at ten (Codex reviewing) or five (Claude reviewing). Findings are the
   canonical `{file, line, severity, suggestion}` array. The exchange has a
-  52-check self-test.
+  52-check (Codex) and 60-check (Claude) self-test plus an opt-in live
+  denial probe that asks a real reviewer for a forbidden write.
 - **Trellis** (`trellis/playbooks/`): universal `work-task`, `code-review`
   and `pr-draft` playbooks that name seam points (`regenerate`, `check`,
   `branch-naming`, `gates`, `attribution`) whose values live in each repo's
@@ -806,7 +815,7 @@ repo can link to.
    `--output-schema` and `--json-schema`, tree digests before and after, a
    per-reviewer lock so two reviews never run at once, numbered rounds with
    `--prior`, and a reviews directory outside the tree
-   (`~/.config/good-agent/reviews/<repo>/<id>-rN.{json,meta.json,log}`).
+   (`~/.config/good-agent/reviews/<repo-slug>/<id>-<prompt>-rN.{json,meta.json,log}`).
    Its defaults come from the `review` block of `good-agent.config.json`
    (section 4.6): `--by` from `externalReviewer` keyed by `--author`, model
    and effort from the per-tool ceiling, `--prompt` defaulting to `diff`. The
@@ -818,7 +827,8 @@ repo can link to.
    (file, line, severity, suggestion per finding, then the count); with it,
    the bare array. The history file always holds the array. Rounds are
    numbered per task and prompt type (`<id>-<prompt>-rN`) so story, plan and
-   diff rounds keep separate counters and the caps apply per direction.
+   diff rounds keep separate counters, and the external caps (ten with
+   Codex reviewing, five with Claude) apply per prompt type.
    The reviews directory is keyed by the repository, not the worktree:
    `<repo-slug>` is the basename of the git common directory's parent plus a
    short hash of its absolute path, so every worktree of one clone shares a
