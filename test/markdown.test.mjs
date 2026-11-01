@@ -84,7 +84,7 @@ test("spans do not cross paragraphs, escaped backticks and brackets are literal"
 test("spans stop at CRLF paragraph breaks and headings; a doubled backslash does not escape a backtick; wrapped titles", () => {
   assert.deepEqual(markdownLinks("`a\r\n\r\n[x](missing.md)\r\n\r\nb`\r\n").map((l) => l.target), ["missing.md"]);
   assert.deepEqual(markdownLinks("`a\n# Heading [y](h.md)\nb`\n").map((l) => l.target), ["h.md"]);
-  assert.deepEqual(claudeImports("\\\\`@AGENTS.md` text\n"), []);
+  assert.deepEqual(markdownLinks("\\\\`[x](a.md)` text\n"), []);
   assert.deepEqual(markdownLinks("[a](docs/a.md \"a title that\nwraps\")\n").map((l) => l.target), ["docs/a.md"]);
 });
 
@@ -145,4 +145,10 @@ test("front matter: an unterminated quoted value is an error and the key is not 
   assert.ok(multi);
   assert.equal(multi.errors.length, 0);
   assert.equal(multi.data.description, "first second");
+});
+
+test("a CRLF or whitespace-only blank line is a paragraph break for link labels", () => {
+  assert.deepEqual(markdownLinks("[a\r\n\r\nb](c.md)\n"), []);
+  assert.deepEqual(markdownLinks("[a\n  \nb](c.md)\n"), []);
+  assert.deepEqual(markdownLinks("[a\r\nb](c.md)\n").map((l) => l.target), ["c.md"]);
 });

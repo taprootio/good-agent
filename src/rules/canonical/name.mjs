@@ -1,5 +1,5 @@
 // @ts-check
-import { copilotReads } from "../../engine.mjs";
+import { copilotReads } from "../../discover.mjs";
 
 /** @type {import("../types.mjs").Rule} */
 export default {

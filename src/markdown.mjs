@@ -329,12 +329,24 @@ function hasOpeningBracket(text, index) {
   let depth = 0;
   for (let i = index - 1; i >= 0; i -= 1) {
     const c = text[i];
-    if (c === "\n" && text[i - 1] === "\n") return false;
+    if (c === "\n" && isBlankBefore(text, i)) return false;
     if (isEscaped(text, i)) continue;
     if (c === "]") depth += 1;
     else if (c === "[") { if (depth === 0) return true; depth -= 1; }
   }
   return false;
+}
+
+/**
+ * Whether the line break at `index` follows a blank line: nothing but
+ * spaces, tabs and carriage returns since the previous line break.
+ * @param {string} text
+ * @param {number} index
+ */
+function isBlankBefore(text, index) {
+  let j = index - 1;
+  while (j >= 0 && (text[j] === " " || text[j] === "\t" || text[j] === "\r")) j -= 1;
+  return j >= 0 && text[j] === "\n";
 }
 
 /**

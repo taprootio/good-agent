@@ -135,6 +135,8 @@ test("messages: wrong-basename import, Copilot-readable canonical name, multi-li
   const f = w.findings.find((/** @type {any} */ x) => x.rule === "claude/import-canonical");
   assert.match(f.message, /resolves to \.claude\/AGENTS\.md/);
   assert.match(f.fix, /@\.\.\/AGENTS\.md/);
+  assert.doesNotMatch(f.message, /only through @path/);
+  assert.match(f.fix, /^Change the import to @\.\.\/AGENTS\.md/);
   const c = JSON.parse(run(["check", "--json", "--cwd", join(FIXTURES, "canonical-detect", "copilot-only")]).stdout);
   const n = c.findings.find((/** @type {any} */ x) => x.rule === "canonical/name");
   assert.deepEqual(n.data.unreadBy, ["codex"]);

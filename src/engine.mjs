@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { discover, detectCanonical, codexChains, claudeLaunchSet, linkTargets, isInstructionPath } from "./discover.mjs";
+import { discover, detectCanonical, codexChains, claudeLaunchSet, linkTargets, isInstructionPath, copilotReads } from "./discover.mjs";
 import { generatedBlocks, generatedBlockAt, parseFrontMatter } from "./markdown.mjs";
 import { RULES } from "./rules/index.mjs";
 import { CONFIG_FILENAME } from "./config.mjs";
@@ -115,15 +115,6 @@ export function pathsNeedCheck(analysis, paths, configPath) {
     if (files.has(rel) || isInstructionPath(rel, analysis.config)) return true;
     return targets.has(rel);
   });
-}
-
-/**
- * The names Copilot reads (its docs): AGENTS.md anywhere, a root CLAUDE.md
- * or GEMINI.md, and the two .github locations.
- * @param {string} path
- */
-export function copilotReads(path) {
-  return /(^|\/)AGENTS\.md$/.test(path) || path === "CLAUDE.md" || path === "GEMINI.md" || path === ".github/copilot-instructions.md" || /^\.github\/instructions\/.+\.instructions\.md$/.test(path);
 }
 
 /**

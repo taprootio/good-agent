@@ -186,9 +186,13 @@ export function detectCanonical(repo, config) {
     }
   }
   if (config.canonical) {
-    let readable = false;
-    try { const abs = join(repo.root, ...config.canonical.split("/")); readable = statSync(abs).isFile() && readFileSync(abs).length >= 0; } catch { readable = false; }
-    return { canonical: config.canonical, inbound, reason: readable ? "configured" : "configured but missing" };
+    const abs = join(repo.root, ...config.canonical.split("/"));
+    let reason = "configured";
+    try {
+      if (!statSync(abs).isFile()) reason = "configured but not a regular file";
+      else readFileSync(abs);
+    } catch { reason = existsSync(abs) ? "configured but not a regular file" : "configured but missing"; }
+    return { canonical: config.canonical, inbound, reason };
   }
   const ranked = repo.files.slice().sort((a, b) => (inbound.get(b.path) ?? 0) - (inbound.get(a.path) ?? 0) || (a.path === "AGENTS.md" ? -1 : b.path === "AGENTS.md" ? 1 : 0));
   if (ranked.length > 0 && (inbound.get(ranked[0].path) ?? 0) > 0) return { canonical: ranked[0].path, inbound, reason: `${inbound.get(ranked[0].path)} inbound reference(s)` };
@@ -196,6 +200,15 @@ export function detectCanonical(repo, config) {
   const rootLevel = repo.files.filter((f) => !f.path.includes("/") || f.path === ".github/copilot-instructions.md" || f.path === ".claude/CLAUDE.md");
   if (rootLevel.length === 1) return { canonical: rootLevel[0].path, inbound, reason: "the only candidate" };
   return { canonical: null, inbound, reason: "no file is referenced by the others" };
+}
+
+/**
+ * The names Copilot reads (its docs): AGENTS.md anywhere, a root CLAUDE.md
+ * or GEMINI.md, and the two .github locations.
+ * @param {string} path
+ */
+export function copilotReads(path) {
+  return /(^|\/)AGENTS\.md$/.test(path) || path === "CLAUDE.md" || path === "GEMINI.md" || path === ".github/copilot-instructions.md" || /^\.github\/instructions\/.+\.instructions\.md$/.test(path);
 }
 
 /**

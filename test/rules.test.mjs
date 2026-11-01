@@ -56,3 +56,8 @@ test("the import fix for .claude/CLAUDE.md is relative to that file", async () =
   assert.equal(importText("CLAUDE.md", "AGENTS.md"), "@AGENTS.md");
   assert.equal(importText("CLAUDE.md", "docs/My Guide.md"), "@docs/My\\ Guide.md");
 });
+
+test("canonical/name can be imported on its own (no circular import through the engine)", async () => {
+  const mod = await import("../src/rules/canonical/name.mjs");
+  assert.equal(mod.default.id, "canonical/name");
+});

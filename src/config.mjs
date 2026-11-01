@@ -93,7 +93,8 @@ export function validateConfig(raw, knownRuleIds, where = CONFIG_FILENAME) {
     if (typeof raw.canonical !== "string" || raw.canonical === "") throw new ConfigError(`${where}: "canonical" must be a non-empty string`);
     const c = raw.canonical.replace(/\\/g, "/");
     if (c.startsWith("/") || /^[A-Za-z]:\//.test(c)) throw new ConfigError(`${where}: "canonical" must be a repository-relative path, not an absolute one`);
-    config.canonical = posix.normalize(c).replace(/^\.\//, "");
+    config.canonical = posix.normalize(c).replace(/^\.\//, "").replace(/\/+$/, "");
+    if (config.canonical === "") throw new ConfigError(`${where}: "canonical" must be a path inside the repository`);
     if (config.canonical.startsWith("../") || config.canonical === "." || config.canonical === "..") throw new ConfigError(`${where}: "canonical" must be a path inside the repository`);
   }
   for (const key of /** @type {const} */ (["ignore", "extraFiles"])) {

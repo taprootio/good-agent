@@ -51,3 +51,10 @@ test("inherited property names are not limits; $schema must be a string; canonic
   assert.throws(() => validateConfig({ canonical: "../x.md" }, ids), ConfigError);
   assert.equal(validateConfig({ canonical: "docs/../AGENTS.md" }, ids).canonical, "AGENTS.md");
 });
+
+test("canonical: trailing slashes are stripped; Windows absolute paths are rejected", () => {
+  assert.equal(validateConfig({ canonical: "AGENTS.md/" }, ids).canonical, "AGENTS.md");
+  assert.throws(() => validateConfig({ canonical: "C:\\repo\\AGENTS.md" }, ids), ConfigError);
+  assert.throws(() => validateConfig({ canonical: "\\\\srv\\share\\AGENTS.md" }, ids), ConfigError);
+  assert.throws(() => validateConfig({ canonical: "./" }, ids), ConfigError);
+});

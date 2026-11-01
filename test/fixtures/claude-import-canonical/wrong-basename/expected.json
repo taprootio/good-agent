@@ -5,13 +5,13 @@
       "rule": "claude/import-canonical",
       "severity": "error",
       "file": ".claude/CLAUDE.md",
-      "line": 1
+      "line": 3
     },
     {
       "rule": "links/broken",
       "severity": "error",
       "file": ".claude/CLAUDE.md",
-      "line": 1
+      "line": 3
     }
   ]
 }

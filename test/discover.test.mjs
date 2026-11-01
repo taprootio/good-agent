@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { discover, detectCanonical, codexChains, claudeLaunchSet, claudeImportDepth, resolveReference } from "../src/discover.mjs";
+import { claudeImports } from "../src/markdown.mjs";
 import { defaultConfig } from "../src/config.mjs";
 import { tempTree, run } from "./helpers.mjs";
 
@@ -147,6 +148,9 @@ test("non-UTF-8 bytes are counted on disk and the ignore check covers every ance
 test("Windows absolute imports are skipped; a nested canonical AGENTS.md has the right name; a normalized canonical path", () => {
   assert.equal(resolveReference("CLAUDE.md", "C:/Users/me/guide.md", "import"), null);
   assert.equal(resolveReference("CLAUDE.md", "\\\\server\\share\\x.md", "import"), null);
+  assert.equal(resolveReference("sub/CLAUDE.md", ".\\AGENTS.md", "import"), "sub/AGENTS.md");
+  const [win] = claudeImports("@.\\my\\ dir\\x.md\n");
+  assert.equal(resolveReference("CLAUDE.md", win.target, "import"), "my dir/x.md");
   const t = tempTree({ "api/AGENTS.md": "# api\n\n- Rule one that is long enough.\n", "CLAUDE.md": "@api/AGENTS.md\n", "good-agent.config.json": '{"canonical":"docs/../api/AGENTS.md"}\n' });
   try {
     const r = run(["check", "--json", "--cwd", t.root]);
@@ -162,10 +166,13 @@ test("budget diagnostics use on-disk bytes for a non-UTF-8 file", async () => {
   const { join } = await import("node:path");
   const t = tempTree({ "CLAUDE.md": "@AGENTS.md\n" });
   try {
-    writeFileSync(join(t.root, "AGENTS.md"), Buffer.concat([Buffer.from("# a\n"), Buffer.alloc(39996, 0xff)]));
+    const body = Buffer.concat([Buffer.from("# a\n"), Buffer.alloc(20000, 0xff), Buffer.from(`\n## Later\n${"- line\n".repeat(3000)}`)]);
+    writeFileSync(join(t.root, "AGENTS.md"), body);
     const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
     const f = j.findings.find((/** @type {any} */ x) => x.rule === "codex/size-budget");
-    assert.equal(f.data.lostBytes, 40000 - 32768);
+    assert.equal(f.data.lostBytes, body.length - 32768);
+    assert.ok(f.line > 2, String(f.line));
+    assert.ok(f.message.includes("## Later"), f.message);
   } finally { t.cleanup(); }
 });
 
