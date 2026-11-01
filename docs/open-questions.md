@@ -17,11 +17,11 @@ The first round of questions was answered on 2026-11-01; the answers are in
    and dispositions. Is anything else from the history wanted in the repo
    (for instance the final round's findings file committed next to the
    task)?
-3. **Default external reviewer model and effort.** Taproot's watcher defaults
-   are `gpt-6-astra` at `medium` for Codex and `sonnet` at `high` for Claude
-   (owner decisions, September 2026). The runner reads these from the
-   `review-ceiling` seam point in AGENTS.md; what should the shipped
-   defaults be when a repo sets none?
+3. **Default external reviewer model and effort.** Resolved by
+   recommendation: the shipped defaults are Codex at `medium` on the user's
+   own configured model, and Claude `sonnet` at `high`, which are Taproot's
+   owner decisions from September 2026. A repo overrides them in the `review`
+   block of `good-agent.config.json`. Say so if you want different ones.
 4. **The unscoped name may be blocked.** npm support unpublished `good-agent`
    in 2020, which can mean a takedown rather than an owner request. GA0005
    publishes a placeholder to find out. If it is refused, the fallback is

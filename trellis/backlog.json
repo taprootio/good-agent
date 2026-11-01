@@ -46,7 +46,9 @@
       "milestone": "Alpha",
       "priority": "High",
       "effort": 5,
-      "depends_on": [],
+      "depends_on": [
+        "GA0001"
+      ],
       "owner": "je",
       "collaborators": [],
       "summary": "Capture Taproot's story-writing and task-working loops as universal good-agent playbooks (shipped as skills) with a shared review-loop section covering internal review until clean and external review by the other AI tool until clean."
@@ -59,6 +61,7 @@
       "priority": "High",
       "effort": 8,
       "depends_on": [
+        "GA0001",
         "GA0003"
       ],
       "owner": "je",
@@ -73,7 +76,10 @@
       "priority": "Medium",
       "effort": 2,
       "depends_on": [
-        "GA0001"
+        "GA0001",
+        "GA0002",
+        "GA0003",
+        "GA0004"
       ],
       "owner": "je",
       "collaborators": [],
