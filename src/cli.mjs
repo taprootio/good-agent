@@ -164,9 +164,12 @@ export function explainText(rule) {
  * @param {(s: string) => void} out
  */
 function runRulesList(args, out) {
-  const { values } = parseArgs({ args, allowPositionals: false, options: { json: { type: "boolean", default: false } } });
-  if (values.json) { out(JSON.stringify(RULES.map((r) => ({ id: r.id, severity: r.severity, since: r.since, docs: r.docs })), null, 2)); return EXIT.ok; }
+  const { values } = parseArgs({ args, allowPositionals: false, options: { json: { type: "boolean", default: false }, config: { type: "string" }, cwd: { type: "string" } } });
+  const root = resolve(values.cwd ?? process.cwd());
+  const { config } = loadConfig(root, { explicitPath: values.config, knownRuleIds: RULE_IDS });
+  const rows = RULES.map((r) => ({ id: r.id, default: r.severity, configured: config.rules[r.id] ?? r.severity, enabled: config.rules[r.id] !== "off", since: r.since, docs: r.docs }));
+  if (values.json) { out(JSON.stringify(rows, null, 2)); return EXIT.ok; }
   const width = Math.max(...RULE_IDS.map((id) => id.length));
-  for (const r of RULES) out(`${r.id.padEnd(width)}  ${r.severity.padEnd(5)}  since ${r.since}  ${r.docs[0]}`);
+  for (const r of rows) out(`${r.id.padEnd(width)}  ${(r.enabled ? r.configured : "off").padEnd(5)}  (default ${r.default})  since ${r.since}  ${r.docs[0]}`);
   return EXIT.ok;
 }

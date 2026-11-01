@@ -1,5 +1,5 @@
 // @ts-check
-import { VERSION } from "./engine.mjs";
+import { VERSION, fileReport } from "./engine.mjs";
 
 const ICON = { error: "✖", warn: "▲", info: "·" };
 
@@ -34,8 +34,8 @@ export function formatHuman(analysis, findings, options) {
   const exitCode = errors > 0 || (options.strict && warnings > 0) ? 1 : 0;
   const parts = [];
   const canonical = analysis.canonical.canonical ?? "(none)";
-  parts.push(`good-agent ${VERSION} · ${analysis.repo.files.length} instruction file${analysis.repo.files.length === 1 ? "" : "s"} · canonical ${canonical}`);
   if (!options.quiet) {
+    parts.push(`good-agent ${VERSION} · ${analysis.repo.files.length} instruction file${analysis.repo.files.length === 1 ? "" : "s"} · canonical ${canonical}`);
     parts.push("");
     for (const f of shown) {
       const where = f.line ? `${f.file}:${f.line}` : f.file;
@@ -69,7 +69,7 @@ export function formatJson(analysis, findings, options) {
     root: analysis.repo.root,
     config: options.configPath,
     canonical: analysis.canonical.canonical,
-    files: analysis.repo.files.map((f) => ({ path: f.path, bytes: f.bytes, lines: f.lines })),
+    files: fileReport(analysis),
     findings: findings.map((f) => ({ rule: f.rule, severity: f.severity, file: f.file, ...(f.line ? { line: f.line } : {}), message: f.message, fix: f.fix, docs: f.docs, ...(f.generatedBy ? { generatedBy: f.generatedBy } : {}), ...(f.data ? { data: f.data } : {}) })),
     summary: { errors, warnings, info, exitCode },
   }, null, 2);

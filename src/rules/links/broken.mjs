@@ -1,5 +1,5 @@
 // @ts-check
-import { referencesOf, existsInRepo } from "../../discover.mjs";
+import { referencesOf, existsInRepo, isIgnoredTarget } from "../../discover.mjs";
 
 /** @type {import("../types.mjs").Rule} */
 export default {
@@ -15,7 +15,7 @@ export default {
     for (const f of ctx.repo.files) {
       const seen = new Set();
       for (const r of referencesOf(f)) {
-        if (r.resolved === null) continue;
+        if (r.resolved === null || isIgnoredTarget(r.resolved, ctx.config)) continue;
         const key = `${r.kind}:${r.line}:${r.target}`;
         if (seen.has(key)) continue;
         seen.add(key);

@@ -1,5 +1,17 @@
 // @ts-check
+import { posix } from "node:path";
 import { referencesOf } from "../../discover.mjs";
+
+/**
+ * The import line (an at sign and a path) that reaches `canonical` from `fromPath`, relative to the
+ * importing file as Claude resolves it, with spaces escaped.
+ * @param {string} fromPath
+ * @param {string} canonical
+ */
+export function importText(fromPath, canonical) {
+  const rel = posix.relative(posix.dirname(fromPath), canonical) || canonical;
+  return `@${rel.replace(/ /g, "\\ ")}`;
+}
 
 /** @type {import("../types.mjs").Rule} */
 export default {
@@ -46,7 +58,7 @@ export default {
         file: cf.path,
         line: 1,
         message: `${cf.path} ${how}. Claude Code imports a file only through @path syntax.`,
-        fix: `Replace the pointer with a line containing @${canonical}; keep Claude-only notes below it.`,
+        fix: `Replace the pointer with a line containing ${importText(cf.path, canonical)}; keep Claude-only notes below it.`,
       });
     }
     return out;

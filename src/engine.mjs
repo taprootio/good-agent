@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { discover, detectCanonical, codexChains, claudeLaunchSet, linkTargets, isInstructionPath } from "./discover.mjs";
 import { generatedBlocks, generatedBlockAt, parseFrontMatter } from "./markdown.mjs";
 import { RULES } from "./rules/index.mjs";
+import { CONFIG_FILENAME } from "./config.mjs";
 
 export const VERSION = /** @type {{ version: string }} */ (JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8"))).version;
 
@@ -107,17 +108,21 @@ export function pathsNeedCheck(analysis, paths, configPath) {
   if (paths.length === 0) return true;
   const targets = linkTargets(analysis.repo);
   const files = new Set(analysis.repo.files.map((f) => f.path));
+  const configRel = configPath ?? CONFIG_FILENAME;
   return paths.some((p) => {
     const rel = p.replace(/^\.\//, "");
-    if (configPath && rel === configPath) return true;
+    if (rel === configRel) return true;
     if (files.has(rel) || isInstructionPath(rel, analysis.config)) return true;
     return targets.has(rel);
   });
 }
 
-/** @param {Analysis} analysis */
-export function inspectData(analysis) {
-  const { repo, canonical, chains, launch, config } = analysis;
+/**
+ * The `files` array shared by `check --json` and `inspect --json`.
+ * @param {Analysis} analysis
+ */
+export function fileReport(analysis) {
+  const { repo, launch } = analysis;
   /** @param {string} path */
   const readBy = (path) => {
     /** @type {string[]} */
@@ -131,6 +136,12 @@ export function inspectData(analysis) {
     if (launch.fallback && path === "AGENTS.md") tools.push("claude:fallback");
     return [...new Set(tools)];
   };
+  return repo.files.map((f) => ({ path: f.path, bytes: f.bytes, lines: f.lines, readBy: readBy(f.path) }));
+}
+
+/** @param {Analysis} analysis */
+export function inspectData(analysis) {
+  const { repo, canonical, chains, launch, config } = analysis;
   const pathSpecific = repo.files.filter((f) => /^\.github\/instructions\//.test(f.path)).map((f) => {
     const fm = parseFrontMatter(f.text);
     return { file: f.path, applyTo: fm && typeof fm.data.applyTo === "string" ? fm.data.applyTo : null };
@@ -140,7 +151,7 @@ export function inspectData(analysis) {
     root: repo.root,
     canonical: canonical.canonical,
     canonicalReason: canonical.reason,
-    files: repo.files.map((f) => ({ path: f.path, bytes: f.bytes, lines: f.lines, readBy: readBy(f.path) })),
+    files: fileReport(analysis),
     codex: {
       limit: config.limits.codexBytes,
       chains: chains.map((c) => ({

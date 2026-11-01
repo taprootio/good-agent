@@ -57,7 +57,8 @@ test("README pre-commit hook snippet: empty commit, path with a space, broken in
     writeFileSync(join(t.root, "my app", "AGENTS.md"), "# nested\n\nSee [gone](missing.md).\n");
     execFileSync("git", ["add", "my app/AGENTS.md"], { cwd: t.root });
     const spaced = sh(t.root, hook);
-    assert.equal(spaced.status, 1, `path with a space should reach check: ${spaced.stdout}${spaced.stderr}`);
+    // BSD xargs passes the child's exit 1 through; GNU xargs reports 123.
+    assert.ok(spaced.status === 1 || spaced.status === 123, `path with a space should reach check (got ${spaced.status}): ${spaced.stdout}${spaced.stderr}`);
     assert.match(spaced.stdout, /my app\/AGENTS\.md/);
     execFileSync("git", ["reset", "-q"], { cwd: t.root });
     writeFileSync(join(t.root, "src", "app.js"), "y\n");

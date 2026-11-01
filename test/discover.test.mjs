@@ -98,3 +98,21 @@ test("the root is the cwd: a run from a subdirectory checks that subdirectory", 
     assert.equal(r.status, 1);
   } finally { t.cleanup(); }
 });
+
+test("an import cycle that closes at hop five is not reported as too deep", () => {
+  const t = tempTree({ "CLAUDE.md": "@docs/a.md\n", "docs/a.md": "@b.md\n", "docs/b.md": "@c.md\n", "docs/c.md": "@d.md\n", "docs/d.md": "@../CLAUDE.md\n" });
+  try { assert.equal(claudeLaunchSet(discover(t.root, defaultConfig())).tooDeep.length, 0); } finally { t.cleanup(); }
+});
+
+test("a nested file every tool points at can be canonical", () => {
+  const t = tempTree({ "AGENTS.md": "See [shared](docs/shared.md).\n", "CLAUDE.md": "@docs/shared.md\n", "docs/shared.md": "# shared\n\n- Rule one that is long enough.\n" });
+  try {
+    const config = { ...defaultConfig(), extraFiles: ["docs/shared.md"] };
+    assert.equal(detectCanonical(discover(t.root, config), config).canonical, "docs/shared.md");
+  } finally { t.cleanup(); }
+});
+
+test("links into ignored directories are not checked", () => {
+  const t = tempTree({ "AGENTS.md": "# a\n\nSee [pkg](node_modules/pkg/README.md) and [vendored](vendor/guide.md).\n", "CLAUDE.md": "@AGENTS.md\n", "good-agent.config.json": '{"ignore":["vendor/**"]}\n' });
+  try { assert.equal(run(["check", "--cwd", t.root]).status, 0); } finally { t.cleanup(); }
+});

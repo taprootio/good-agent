@@ -56,3 +56,13 @@ test("countLines matches wc -l", () => {
   assert.equal(countLines("a\nb"), 2);
   assert.equal(countLines("a\nb\n"), 2);
 });
+
+test("stripCode: tilde fences, longer fences, double-backtick spans", () => {
+  const src = "~~~\n@AGENTS.md\n~~~\n````md\n```\n@X.md\n````\nuse ``@AGENTS.md`` here\n";
+  assert.deepEqual(claudeImports(src), []);
+});
+
+test("markdownLinks: angle-bracket destinations with spaces, balanced parentheses, titles", () => {
+  const links = markdownLinks("[a](<docs/my guide.md>) [b](docs/guide(v2).md) [c](docs/x.md \"title\") [d](docs/y.md 'title')\n");
+  assert.deepEqual(links.map((l) => l.target), ["docs/my guide.md", "docs/guide(v2).md", "docs/x.md", "docs/y.md"]);
+});

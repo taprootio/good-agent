@@ -89,3 +89,28 @@ test("help and version", () => {
   assert.match(h.stdout, /run from the repository root/);
   assert.match(run(["--version"]).stdout, /^\d+\.\d+\.\d+/);
 });
+
+test("a deleted default config still triggers the path filter; --quiet prints one line; rules reflects config", () => {
+  assert.equal(run(["check", "good-agent.config.json"], { cwd: FAIL }).status, 1);
+  const q = run(["check", "--quiet", "--cwd", FAIL]).stdout.trim().split("\n");
+  assert.equal(q.length, 1);
+  assert.match(q[0], /\(exit 1\)$/);
+  const t = tempTree({ "AGENTS.md": "# a\n", "good-agent.config.json": '{"rules":{"canonical/name":"off"}}\n' });
+  try {
+    const rows = JSON.parse(run(["rules", "--json", "--cwd", t.root]).stdout);
+    const name = rows.find((/** @type {any} */ r) => r.id === "canonical/name");
+    assert.equal(name.enabled, false);
+    assert.match(run(["rules", "--cwd", t.root]).stdout, /canonical\/name\s+off/);
+  } finally { t.cleanup(); }
+  const j = JSON.parse(run(["check", "--json", "--cwd", FAIL]).stdout);
+  assert.ok(Array.isArray(j.files[0].readBy));
+  const dot = JSON.parse(run(["check", "--json", "--cwd", join(FIXTURES, "claude-import-canonical", "fail-link")]).stdout);
+  assert.ok(dot.findings.some((/** @type {any} */ f) => f.rule === "claude/import-canonical"));
+});
+
+test("schema rule names match the registry", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { REPO } = await import("./helpers.mjs");
+  const schema = JSON.parse(readFileSync(join(REPO, "schema", "config.json"), "utf8"));
+  assert.deepEqual(schema.properties.rules.propertyNames.enum, RULE_IDS);
+});

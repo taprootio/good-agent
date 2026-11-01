@@ -14,9 +14,26 @@
  * @returns {string}
  */
 export function stripCode(src) {
-  return src
-    .replace(/```[\s\S]*?(```|$)/g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
+  const lines = src.split("\n");
+  /** @type {{ char: string, length: number } | null} */
+  let fence = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const open = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (fence) {
+      lines[i] = " ".repeat(line.length);
+      if (open && open[1][0] === fence.char && open[1].length >= fence.length && line.trim() === open[1]) fence = null;
+      continue;
+    }
+    if (open && !(open[1][0] === "`" && line.slice(open[0].length).includes("`"))) {
+      fence = { char: open[1][0], length: open[1].length };
+      lines[i] = " ".repeat(line.length);
+      continue;
+    }
+    // Inline code spans: a run of N backticks closes with the same run.
+    lines[i] = line.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (m) => " ".repeat(m.length));
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -120,14 +137,39 @@ export function markdownLinks(src) {
   const clean = stripCode(src);
   /** @type {Reference[]} */
   const out = [];
-  const re = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-  let m;
-  while ((m = re.exec(clean))) {
-    const raw = m[1];
+  let from = 0;
+  for (;;) {
+    const at = clean.indexOf("](", from);
+    if (at < 0) break;
+    let i = at + 2;
+    while (clean[i] === " " || clean[i] === "\t") i += 1;
+    let raw = "";
+    if (clean[i] === "<") {
+      const close = clean.indexOf(">", i + 1);
+      if (close < 0 || clean.slice(i + 1, close).includes("\n")) { from = at + 2; continue; }
+      raw = clean.slice(i + 1, close);
+      i = close + 1;
+    } else {
+      let depth = 0;
+      const start = i;
+      while (i < clean.length) {
+        const c = clean[i];
+        if (c === "\\" && i + 1 < clean.length) { i += 2; continue; }
+        if (c === "(") depth += 1;
+        else if (c === ")") { if (depth === 0) break; depth -= 1; }
+        else if (/\s/.test(c)) break;
+        i += 1;
+      }
+      raw = clean.slice(start, i).replace(/\\([()\s])/g, "$1");
+    }
+    // optional title, then the closing parenthesis
+    const rest = clean.slice(i).match(/^\s*(?:"[^"\n]*"|'[^'\n]*')?\s*\)/);
+    from = at + 2;
+    if (!rest || raw === "") continue;
     if (/^(https?:|mailto:|#)/i.test(raw)) continue;
     const target = raw.replace(/#.*$/, "");
     if (!target) continue;
-    out.push({ target, line: lineOf(clean, m.index), raw });
+    out.push({ target, line: lineOf(clean, at), raw });
   }
   return out;
 }

@@ -109,6 +109,19 @@ export function resolveReference(fromPath, target, kind) {
 }
 
 /**
+ * Whether a resolved reference points into a directory the guard does not
+ * model: an installed or generated directory, or a configured ignore glob.
+ * Such targets are not checked for existence (design 3, noise controls).
+ * @param {string} rel
+ * @param {import("./config.mjs").Config} config
+ */
+export function isIgnoredTarget(rel, config) {
+  const first = rel.split("/")[0];
+  if (IGNORED_DIRS.has(first)) return true;
+  return config.ignore.some((g) => { const re = globToRegExp(g); return re.test(rel) || re.test(`${rel}/`); });
+}
+
+/**
  * @param {Repo} repo
  * @param {string} rel
  */
@@ -148,11 +161,11 @@ export function detectCanonical(repo, config) {
   if (config.canonical) {
     return { canonical: config.canonical, inbound, reason: existsInRepo(repo, config.canonical) ? "configured" : "configured but missing" };
   }
-  const candidates = repo.files.filter((f) => !f.path.includes("/") || f.path.startsWith(".github/") || f.path.startsWith(".claude/"));
-  const ranked = candidates.slice().sort((a, b) => (inbound.get(b.path) ?? 0) - (inbound.get(a.path) ?? 0) || (a.path === "AGENTS.md" ? -1 : b.path === "AGENTS.md" ? 1 : 0));
+  const ranked = repo.files.slice().sort((a, b) => (inbound.get(b.path) ?? 0) - (inbound.get(a.path) ?? 0) || (a.path === "AGENTS.md" ? -1 : b.path === "AGENTS.md" ? 1 : 0));
   if (ranked.length > 0 && (inbound.get(ranked[0].path) ?? 0) > 0) return { canonical: ranked[0].path, inbound, reason: `${inbound.get(ranked[0].path)} inbound reference(s)` };
   if (repo.byPath.has("AGENTS.md")) return { canonical: "AGENTS.md", inbound, reason: "AGENTS.md exists" };
-  if (ranked.length === 1) return { canonical: ranked[0].path, inbound, reason: "the only candidate" };
+  const rootLevel = repo.files.filter((f) => !f.path.includes("/") || f.path.startsWith(".github/") || f.path.startsWith(".claude/"));
+  if (rootLevel.length === 1) return { canonical: rootLevel[0].path, inbound, reason: "the only candidate" };
   return { canonical: null, inbound, reason: "no file is referenced by the others" };
 }
 
@@ -240,7 +253,7 @@ export function claudeLaunchSet(repo) {
     entries.push({ file: path, lines: file.lines, via, depth });
     for (const imp of claudeImports(file.text)) {
       const resolved = resolveReference(path, imp.target, "import");
-      if (resolved === null) continue;
+      if (resolved === null || seen.has(resolved)) continue;
       if (depth + 1 > MAX_DEPTH) { tooDeep.push({ file: resolved, via: path, line: imp.line }); continue; }
       add(resolved, path, depth + 1);
     }

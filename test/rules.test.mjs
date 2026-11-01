@@ -49,3 +49,10 @@ test("every rule has rationale, fix and an https primary doc", () => {
     assert.equal(rule.since, "0.1.0");
   }
 });
+
+test("the import fix for .claude/CLAUDE.md is relative to that file", async () => {
+  const { importText } = await import("../src/rules/claude/import-canonical.mjs");
+  assert.equal(importText(".claude/CLAUDE.md", "AGENTS.md"), "@../AGENTS.md");
+  assert.equal(importText("CLAUDE.md", "AGENTS.md"), "@AGENTS.md");
+  assert.equal(importText("CLAUDE.md", "docs/My Guide.md"), "@docs/My\\ Guide.md");
+});

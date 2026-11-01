@@ -23,6 +23,7 @@
     "rules": {
       "type": "object",
       "description": "Rule id to severity. The object form allows only \"severity\" in version 1.",
+      "propertyNames": { "enum": ["canonical/detect", "canonical/name", "codex/size-budget", "claude/import-canonical", "claude/import-depth", "claude/size", "links/broken", "copilot/applyto", "dry/copied-canonical"] },
       "additionalProperties": {
         "oneOf": [
           { "enum": ["error", "warn", "info", "off"] },
