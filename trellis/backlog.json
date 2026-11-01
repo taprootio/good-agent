@@ -6,9 +6,9 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0007",
+  "nextId": "GA0008",
   "counts": {
-    "active": 6,
+    "active": 7,
     "completed": 0,
     "removed": 0
   },
@@ -100,6 +100,20 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Point taproot and taproot-controls at the published skills and review runner, delete the process text and exchange scripts they duplicate, and fix the errors the guard reports in each repo."
+    },
+    {
+      "id": "GA0007",
+      "title": "Remove the work-task playbook from Trellis in favour of good-agent",
+      "status": "active",
+      "milestone": "Beta",
+      "priority": "Medium",
+      "effort": 2,
+      "depends_on": [
+        "GA0005"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Once good-agent is released, delete Trellis's own work-task playbook and MCP prompt and point its code-review and pr-draft playbooks at good-agent's review-loop skill, so the loop has one home."
     }
   ]
 }
