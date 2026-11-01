@@ -37,24 +37,26 @@ npx good-agent check
 ```
 
 That is the whole setup for the guard. It finds your instruction files, works
-out which one is canonical (the one the others point at), and reports.
+out which one is canonical (the one the others point at), and reports. This is
+the output on a repository whose `AGENTS.md` has grown to 34,348 bytes:
 
 ```
-good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
+good-agent 0.1.0 · 2 instruction files · canonical AGENTS.md
 
-✖ AGENTS.md  codex/size-budget
+✖ AGENTS.md:565  codex/size-budget
   Codex loads at most 32,768 bytes of AGENTS.md content along the chain
   AGENTS.md (34,348 bytes). It truncates AGENTS.md at byte 32,768 (line 565,
   inside "## Area-specific architecture"); the last 1,580 bytes never reach
   Codex.
   fix: Move long sections into docs/ and link them from AGENTS.md, or split
-  guidance into nested AGENTS.md files closer to the code they govern.
+  guidance into nested AGENTS.md files closer to the code they govern. Raising
+  project_doc_max_bytes is per-user config and does not fix the repository.
   docs: https://developers.openai.com/codex/guides/agents-md
 
 ▲ AGENTS.md  claude/size
-  590 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
-  the docs recommend under 200 lines per file because longer files reduce
-  adherence. Launch set: CLAUDE.md 29 + AGENTS.md 590 = 619 lines.
+  589 lines, loaded at launch through the @import in CLAUDE.md; the docs
+  recommend under 200 lines per file because longer files reduce adherence.
+  Launch set: CLAUDE.md 28 + AGENTS.md 589 = 617 lines.
   fix: Move reference material into docs/ linked by path (not @-imported), or
   into skills and path-scoped .claude/rules that load on demand.
   docs: https://code.claude.com/docs/en/memory
@@ -65,11 +67,11 @@ good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
 Or, on a repo whose `CLAUDE.md` says "see AI_GUIDELINES.md" in prose:
 
 ```
-✖ CLAUDE.md  claude/import-canonical
-  CLAUDE.md links to AI_GUIDELINES.md as a Markdown link, which Claude Code
-  only follows if it decides to open the file. Claude Code imports a file
-  only through `@path` syntax.
-  fix: Replace the pointer with a line containing `@AI_GUIDELINES.md`; keep
+✖ CLAUDE.md:1  claude/import-canonical
+  CLAUDE.md links to AI_GUIDELINES.md as a Markdown link, which Claude Code only
+  follows if it decides to open the file. Claude Code imports a file only
+  through @path syntax.
+  fix: Replace the pointer with a line containing @AI_GUIDELINES.md; keep
   Claude-only notes below it.
   docs: https://code.claude.com/docs/en/memory
 ```

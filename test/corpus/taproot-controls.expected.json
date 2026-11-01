@@ -1,0 +1,20 @@
+{
+  "pin": {
+    "commit": "b0f84baf"
+  },
+  "exitCode": 1,
+  "canonical": "AI_GUIDELINES.md",
+  "findings": [
+    {
+      "rule": "claude/import-canonical",
+      "severity": "error",
+      "file": "CLAUDE.md",
+      "line": 1
+    },
+    {
+      "rule": "canonical/name",
+      "severity": "warn",
+      "file": "AI_GUIDELINES.md"
+    }
+  ]
+}

@@ -81,7 +81,7 @@ contract, then set these to match your tooling:
 | `regenerate` | `npx @taprootio/trellis generate` |
 | `check` | `npx @taprootio/trellis check` |
 | `branch-naming` | `<initials>/<id-lowercase>/<slug>` (e.g. `je/ga0001/short-slug`) |
-| `gates` | `npx @taprootio/trellis check` + `node --test` + `npm run typecheck` + `node scripts/good-agent.mjs check` once the guard exists |
+| `gates` | `npx @taprootio/trellis check` + `node --test` + `npm run typecheck` + `node scripts/good-agent.mjs check` |
 | `attribution` | none — no `Co-Authored-By:` trailers or "Generated with …" footers |
 
 See `trellis/playbooks/` for the work-a-task and code-review loops.

@@ -1,0 +1,100 @@
+// @ts-check
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { discover, detectCanonical, codexChains, claudeLaunchSet, resolveReference } from "../src/discover.mjs";
+import { defaultConfig } from "../src/config.mjs";
+import { tempTree, run } from "./helpers.mjs";
+
+const AG = "# AGENTS.md\n\n- Rule one that is long enough.\n";
+
+test("taproot-like layout: AGENTS.md canonical by inbound references", () => {
+  const t = tempTree({ "AGENTS.md": AG, "CLAUDE.md": "@AGENTS.md\n", ".github/copilot-instructions.md": "Read [AGENTS.md](../AGENTS.md).\n", ".github/instructions/a.instructions.md": '---\napplyTo: "**"\n---\n', "node_modules/x/AGENTS.md": "ignored\n" });
+  try {
+    const repo = discover(t.root, defaultConfig());
+    assert.deepEqual(repo.files.map((f) => f.path), [".github/copilot-instructions.md", ".github/instructions/a.instructions.md", "AGENTS.md", "CLAUDE.md"]);
+    const c = detectCanonical(repo, defaultConfig());
+    assert.equal(c.canonical, "AGENTS.md");
+    assert.equal(c.inbound.get("AGENTS.md"), 2);
+  } finally { t.cleanup(); }
+});
+
+test("taproot-controls-like layout: the file three pointers agree on", () => {
+  const t = tempTree({ "AI_GUIDELINES.md": AG, "AGENTS.md": "See [AI_GUIDELINES.md](AI_GUIDELINES.md).\n", "CLAUDE.md": "See [AI_GUIDELINES.md](AI_GUIDELINES.md).\n", ".github/copilot-instructions.md": "See [AI_GUIDELINES.md](../AI_GUIDELINES.md).\n" });
+  try {
+    const repo = discover(t.root, defaultConfig());
+    assert.equal(detectCanonical(repo, defaultConfig()).canonical, "AI_GUIDELINES.md");
+  } finally { t.cleanup(); }
+});
+
+test("site-like, trellis-like and empty layouts", () => {
+  const site = tempTree({ "AGENTS.md": AG, "CLAUDE.md": "@AGENTS.md\n" });
+  const trellis = tempTree({ "AGENTS.md": AG });
+  const empty = tempTree({ "README.md": "x\n" });
+  try {
+    assert.equal(detectCanonical(discover(site.root, defaultConfig()), defaultConfig()).canonical, "AGENTS.md");
+    const tr = discover(trellis.root, defaultConfig());
+    assert.equal(detectCanonical(tr, defaultConfig()).canonical, "AGENTS.md");
+    assert.equal(claudeLaunchSet(tr).fallback, true);
+    assert.equal(detectCanonical(discover(empty.root, defaultConfig()), defaultConfig()).canonical, null);
+  } finally { site.cleanup(); trellis.cleanup(); empty.cleanup(); }
+});
+
+test("configured canonical wins and ignore globs apply", () => {
+  const t = tempTree({ "GUIDE.md": AG, "AGENTS.md": AG, "vendor/AGENTS.md": AG });
+  try {
+    const config = { ...defaultConfig(), canonical: "GUIDE.md", ignore: ["vendor/**"] };
+    const repo = discover(t.root, config);
+    assert.deepEqual(repo.files.map((f) => f.path), ["AGENTS.md", "GUIDE.md"]);
+    assert.equal(detectCanonical(repo, config).canonical, "GUIDE.md");
+  } finally { t.cleanup(); }
+});
+
+test("codex chains: one file per directory, override wins, empty override contributes nothing", () => {
+  const t = tempTree({ "AGENTS.md": AG, "api/AGENTS.md": AG, "api/AGENTS.override.md": "", "web/AGENTS.override.md": "# w\n" });
+  try {
+    const chains = codexChains(discover(t.root, defaultConfig()));
+    const api = chains.find((c) => c.dir === "api");
+    assert.ok(api);
+    assert.deepEqual(api.entries.map((e) => [e.file, e.bytes, e.shadows]), [["AGENTS.md", AG.length, null], ["api/AGENTS.override.md", 0, "api/AGENTS.md"]]);
+    const web = chains.find((c) => c.dir === "web");
+    assert.ok(web);
+    assert.equal(web.entries.length, 2);
+  } finally { t.cleanup(); }
+});
+
+test("claude launch set: .claude/CLAUDE.md, rules without paths, imports once, four hops", () => {
+  const t = tempTree({
+    ".claude/CLAUDE.md": "@../AGENTS.md\n@../docs/a.md\n",
+    ".claude/rules/one.md": "rule\n",
+    ".claude/rules/scoped.md": "---\npaths:\n  - src/**\n---\nscoped\n",
+    "AGENTS.md": AG,
+    "docs/a.md": "@b.md\n", "docs/b.md": "@c.md\n", "docs/c.md": "@d.md\n", "docs/d.md": "@e.md\n", "docs/e.md": "deep\n",
+  });
+  try {
+    const launch = claudeLaunchSet(discover(t.root, defaultConfig()));
+    const files = launch.entries.map((e) => e.file);
+    assert.ok(files.includes(".claude/CLAUDE.md") && files.includes(".claude/rules/one.md") && files.includes("AGENTS.md") && files.includes("docs/d.md"));
+    assert.ok(!files.includes(".claude/rules/scoped.md"));
+    assert.ok(!files.includes("docs/e.md"));
+    assert.equal(launch.tooDeep.length, 1);
+    assert.equal(launch.fallback, false);
+  } finally { t.cleanup(); }
+});
+
+test("resolveReference: links from the root, imports absolute and outside", () => {
+  assert.equal(resolveReference(".github/copilot-instructions.md", "../AGENTS.md", "link"), "AGENTS.md");
+  assert.equal(resolveReference("docs/x.md", "/AGENTS.md", "link"), "AGENTS.md");
+  assert.equal(resolveReference("CLAUDE.md", "/AGENTS.md", "import"), null);
+  assert.equal(resolveReference("CLAUDE.md", "~/.claude/x.md", "import"), null);
+  assert.equal(resolveReference("CLAUDE.md", "../../x.md", "import"), null);
+});
+
+test("the root is the cwd: a run from a subdirectory checks that subdirectory", () => {
+  const t = tempTree({ "AGENTS.md": AG, "CLAUDE.md": "@AGENTS.md\n", "sub/README.md": "x\n" });
+  try {
+    const r = run(["check", "--json"], { cwd: `${t.root}/sub` });
+    const j = JSON.parse(r.stdout);
+    assert.equal(j.canonical, null);
+    assert.equal(r.status, 1);
+  } finally { t.cleanup(); }
+});

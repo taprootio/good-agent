@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "findings": [
+    {
+      "rule": "canonical/name",
+      "file": "AI_GUIDELINES.md"
+    }
+  ]
+}

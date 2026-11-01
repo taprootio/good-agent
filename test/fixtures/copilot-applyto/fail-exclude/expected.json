@@ -1,0 +1,10 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "copilot/applyto",
+      "file": ".github/instructions/cs.instructions.md",
+      "line": 1
+    }
+  ]
+}

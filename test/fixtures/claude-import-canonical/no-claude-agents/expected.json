@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "findings": [
+    {
+      "rule": "claude/import-canonical",
+      "file": "AGENTS.md",
+      "severity": "info"
+    }
+  ]
+}

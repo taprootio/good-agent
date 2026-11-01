@@ -1,0 +1,3 @@
+# notes
+
+Some Claude notes.

@@ -1,0 +1,15 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "links/broken",
+      "file": "AGENTS.md",
+      "line": 8
+    },
+    {
+      "rule": "links/broken",
+      "file": "CLAUDE.md",
+      "line": 2
+    }
+  ]
+}

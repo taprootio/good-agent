@@ -22,7 +22,7 @@ corpus acceptance is checked at these commits.
 | `codex/size-budget` | **error**: 34,348 B, cut at byte 32,768 | pass (`AGENTS.md` is 4,582 B) | pass (13,455 B) |
 | `claude/import-canonical` | pass (`@AGENTS.md`) | **error**: Markdown link, not an import | pass (`@AGENTS.md`) |
 | `claude/import-depth` | pass | pass | pass |
-| `claude/size` | **warn**: `AGENTS.md` 590 lines via import (launch set 619) | pass (11 lines) | pass (97 lines) |
+| `claude/size` | **warn**: `AGENTS.md` 589 lines via import (launch set 617) | pass (11 lines) | pass (97 lines) |
 | `links/broken` | pass (23 link targets, all exist) | pass (23 targets in `AI_GUIDELINES.md`, all exist) | pass |
 | `copilot/applyto` | pass (3 files, all have `applyTo`) | no `.instructions.md` files | no `.github` |
 | `dry/copied-canonical` | pass | pass | pass |
@@ -65,8 +65,8 @@ Notes:
   bullets into the `docs/architecture/` files they already link to and keep
   one line each.
 - `claude/size` is the same fact seen from Claude's side: `AGENTS.md` is
-  590 lines and reaches the launch set through the `@AGENTS.md` import
-  (619 lines in all). The prototype reported the combined total; the design
+  589 lines and reaches the launch set through the `@AGENTS.md` import
+  (617 lines in all; the prototype counted a trailing newline as a line). The prototype reported the combined total; the design
   now warns per file, which the docs support, and reports the total as
   info. Taproot's outcome is the same. Claude Code warns about this itself
   at startup, which is why the rule is a warning.

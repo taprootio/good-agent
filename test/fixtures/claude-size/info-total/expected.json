@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "findings": [
+    {
+      "rule": "claude/size",
+      "file": "CLAUDE.md",
+      "severity": "info"
+    }
+  ]
+}

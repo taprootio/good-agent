@@ -1,0 +1,9 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "canonical/detect",
+      "file": "."
+    }
+  ]
+}
