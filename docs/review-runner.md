@@ -29,7 +29,7 @@ good-agent review [--by codex|claude] [--author codex|claude]
 | `--timeout-minutes` | Wall-clock limit for the whole run including lock waits, at most 35791 (the longest timer Node can set; larger is exit 2); the reviewer's process group is killed with SIGKILL past it. |
 | `--no-wait` | Fail fast (exit 2) instead of waiting for the reviewer's lock. |
 | `--json` | Print the bare findings array; otherwise a human summary (a header, then `file:line  severity` and the suggestion per finding, then the count and the history path). |
-| `--cwd`, `--config` | The repository to review (default: the current directory) and the config file (default: `good-agent.config.json` in it). |
+| `--cwd`, `--config` | A directory inside the repository to review (default: the current directory; relative `--task`, `--prior` and `--config` paths and the config file are found from it) and the config file (default: `good-agent.config.json` in it). The reviewer and the `codex mcp list` calls always run from the repository top level, whatever `--cwd` is. |
 
 Empty flag values are exit 2, and so is a `--verified` value with a control
 character such as a newline (it would let a command text start new prompt
@@ -105,13 +105,23 @@ the message names the log).
    unchanged. The prompt is the body of the review-loop skill's
    `references/review-<prompt>.md` (the text before the first `<!-- ENDING:`
    marker, without its title line) with the placeholders filled in one pass
-   (`{{TASK}}`, `{{BASE}}` and `{{HEAD}}` as full shas, `{{VERIFIED}}`,
+   (`{{TASK}}` as the task's real path relative to the repository top level,
+   and every path in `{{CHANGED}}` relative to it too, because that is where
+   the reviewer runs; `{{BASE}}` and `{{HEAD}}` as full shas, `{{VERIFIED}}`,
    `{{CHANGED}}` from `git diff --name-status` against the base plus
    untracked files, `{{PRIOR}}`, `{{BASE_CLAUSE}}`, and `{{AUTHOR_CONTEXT}}`,
    one sentence naming the authoring tool and saying its internal review is
    clean), then the runner ending without its marker comments.
-6. Runs the reviewer in its own process group with the hardened flags
-   below and the prompt on stdin. A timeout, or a SIGINT, SIGTERM or SIGHUP
+6. Runs the reviewer from the repository top level (`-C <top>` and the
+   process's working directory for Codex, the working directory for Claude),
+   in its own process group, with the hardened flags below. It is spawned
+   behind a start gate, a shell that waits on stdin for a `go` line before it
+   `exec`s the reviewer (the pid and group are unchanged), and the prompt
+   follows the `go` line on the same pipe. The runner records the group in
+   the lock first and only then sends `go`, so a runner killed in between
+   leaves a gate that sees end of input and exits without ever starting the
+   reviewer, and a reviewer that is running is always named in the lock. If
+   the lock cannot be written the pipe is closed without `go`. A timeout, or a SIGINT, SIGTERM or SIGHUP
    to the runner at any point from the lock wait onward, kills the whole
    group; the round is recorded as `REVIEW_ERROR` (`interrupted by <signal>`)
    and the lock is released. When the direct child exits, anything it left

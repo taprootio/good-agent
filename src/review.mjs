@@ -293,9 +293,33 @@ async function reapGroup(pgid) {
 }
 
 /**
+ * Test-only: with GOOD_AGENT_TEST_PAUSE=<dir> (honoured only inside a
+ * `node --test` process), write <dir>/paused and block until <dir>/resume
+ * exists, so a test can kill the runner between spawning the gate and
+ * recording its group in the lock.
+ */
+function pauseForTest() {
+  const dir = process.env.GOOD_AGENT_TEST_PAUSE;
+  if (!dir || !process.env.NODE_TEST_CONTEXT) return;
+  writeFileSync(join(dir, "paused"), "");
+  for (let i = 0; i < 1500 && !existsSync(join(dir, "resume")); i += 1) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+}
+
+/**
+ * The start gate: a shell that waits on stdin for a line `go` before it
+ * `exec`s the reviewer, and exits without running anything on end of file or
+ * anything else. The exec keeps the pid and process group, so the group id
+ * recorded in the lock while the gate waits is the reviewer's.
+ */
+const GATE = 'IFS= read -r go || exit 0; [ "$go" = go ] || exit 0; exec "$@"';
+
+/**
  * Run the reviewer in its own process group so a timeout or a signal kills
- * everything it started, not only the direct child. `onSpawn` receives the
- * group id (the child's pid) as soon as the child exists.
+ * everything it started, not only the direct child. The reviewer does not
+ * start (and is not given its prompt) until `onSpawn` has recorded the group
+ * id and returned: it is spawned behind a start gate, so a runner that dies
+ * before the lock names the group leaves nothing running. `onSpawn` receives
+ * the group id (the child's pid).
  * @param {string} command
  * @param {string[]} argv
  * @param {{ cwd: string, env: Env, input: string, timeoutMs: number, trap: ReturnType<typeof trapSignals>, onSpawn: (pgid: number) => void }} o
@@ -307,8 +331,11 @@ export function runChild(command, argv, o) {
     if (o.trap.signal) { result.interrupted = o.trap.signal; done(result); return; }
     /** @type {import("node:child_process").ChildProcess} */
     let child;
+    const gated = process.platform !== "win32";
     try {
-      child = spawn(command, argv, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });
+      child = gated
+        ? spawn("sh", ["-c", GATE, "sh", command, ...argv], { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], detached: true })
+        : spawn(command, argv, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], detached: false });
     } catch (error) { result.error = /** @type {Error} */ (error); done(result); return; }
     const killGroup = () => {
       try { if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* gone */ } }
@@ -342,16 +369,23 @@ export function runChild(command, argv, o) {
       reapGroup(child.pid).then((gone) => { if (!gone) result.survivor = child.pid ?? null; reaped = true; if (closed) finish(); else grace = setTimeout(finish, 2000); });
     });
     child.on("close", () => { closed = true; if (reaped) finish(); });
-    child.stdin?.end(o.input);
     // Only now, with every handler installed, record the reviewer's group. If
-    // that fails the review cannot be tracked: kill the group and let the exit
-    // path reap it and clear the timer before the result resolves.
+    // that fails the review cannot be tracked: close the gate without `go`
+    // (the reviewer never starts), kill the group and let the exit path reap
+    // it and clear the timer before the result resolves.
+    let recorded = true;
     if (child.pid) {
-      try { o.onSpawn(child.pid); } catch (error) {
+      try {
+        pauseForTest();
+        o.onSpawn(child.pid);
+      } catch (error) {
+        recorded = false;
         result.error = new Error(`could not record the reviewer's process group in the lock: ${error instanceof Error ? error.message : String(error)}`);
         killGroup();
       }
     }
+    if (recorded) child.stdin?.end(gated ? `go\n${o.input}` : o.input);
+    else child.stdin?.end();
     if (o.trap.signal) killGroup();
   });
 }
@@ -553,8 +587,8 @@ async function review(args, out, err) {
       /** @type {string[]} */
       let argv;
       if (reviewer === "codex") {
-        const isolation = codexIsolation(root, env, deadline);
-        argv = ["exec", "-C", root, "--sandbox", "read-only", "-c", 'approval_policy="never"', "-c", "notify=[]", "--ignore-rules", ...isolation,
+        const isolation = codexIsolation(top, env, deadline);
+        argv = ["exec", "-C", top, "--sandbox", "read-only", "-c", 'approval_policy="never"', "-c", "notify=[]", "--ignore-rules", ...isolation,
           ...(model ? ["-m", model] : []), "-c", `model_reasoning_effort="${effort}"`, "--ephemeral", "--color", "never", "--output-schema", SCHEMA_PATH, "-o", outFile, "-"];
       } else {
         const settings = join(tmp, "settings.json");
@@ -567,7 +601,7 @@ async function review(args, out, err) {
       }
       if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
       if (Date.now() >= deadline) return fail("REVIEW_ERROR", BUDGET_EXHAUSTED);
-      const result = await runChild(reviewer, argv, { cwd: root, env, input: promptText, timeoutMs: deadline - Date.now(), trap, onSpawn: (pgid) => lock?.setChild(pgid) });
+      const result = await runChild(reviewer, argv, { cwd: top, env, input: promptText, timeoutMs: deadline - Date.now(), trap, onSpawn: (pgid) => lock?.setChild(pgid) });
       // Before anything that can throw: a group that outlived SIGKILL keeps the lock.
       if (result.survivor) retainLock = true;
       digestAfter = treeDigest(root);

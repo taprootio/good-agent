@@ -21,7 +21,8 @@ fi
 if [ "$1" = "exec" ]; then
   out=""; prev=""
   for a in "$@"; do if [ "$prev" = "-o" ]; then out="$a"; fi; prev="$a"; done
-  cat > /dev/null
+  [ -n "$FAKE_STARTED_FILE" ] && echo started >> "$FAKE_STARTED_FILE"
+  if [ -n "$FAKE_STDIN_FILE" ]; then cat > "$FAKE_STDIN_FILE"; else cat > /dev/null; fi
   # With both set, the marker is written by a backgrounded grandchild after the
   # sleep, so a test can tell whether the whole process group was killed.
   if [ -n "$FAKE_SLEEP" ] && [ -n "$FAKE_TOUCH" ]; then (sleep "$FAKE_SLEEP"; echo moved >> "$FAKE_TOUCH") & wait

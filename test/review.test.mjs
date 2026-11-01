@@ -815,20 +815,18 @@ test("a failing lock record kills and reaps the reviewer's group, clears the tim
   } finally { r.cleanup(); }
 });
 
-test("runChild: when onSpawn throws the group is gone and no timer is left before it resolves", () => {
+test("runChild: when onSpawn throws the reviewer never starts, nothing is left and no timer keeps the process alive", () => {
   const script = `
     import { runChild } from ${JSON.stringify(join(REPO, "src", "review.mjs"))};
-    import { existsSync, readFileSync } from "node:fs";
+    import { existsSync } from "node:fs";
     const file = process.argv[1];
     const trap = { signal: null, kill: null, dispose() {} };
+    let pgid = 0;
     const result = await runChild("sh", ["-c", 'sleep 30 </dev/null >/dev/null 2>&1 & echo "$$ $!" > "' + file + '"; sleep 30'], {
-      cwd: process.cwd(), env: process.env, input: "", timeoutMs: 600000, trap, onSpawn() {
-        for (let i = 0; i < 100 && !existsSync(file); i += 1) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-        throw new Error("lock unwritable");
-      } });
-    const [pgid, kid] = existsSync(file) ? readFileSync(file, "utf8").trim().split(" ").map(Number) : [0, 0];
+      cwd: process.cwd(), env: process.env, input: "prompt", timeoutMs: 600000, trap, onSpawn(p) { pgid = p; throw new Error("lock unwritable"); } });
+    await new Promise((r) => setTimeout(r, 300));
     const gone = (pid) => { try { process.kill(pid, 0); return false; } catch (e) { return e.code === "ESRCH"; } };
-    console.log(JSON.stringify({ error: String(result.error && result.error.message), groupGone: gone(-pgid), kidGone: kid ? gone(kid) : true }));
+    console.log(JSON.stringify({ error: String(result.error && result.error.message), groupGone: gone(-pgid), started: existsSync(file) }));
   `;
   const file = join(scratch("good-agent-runchild-"), "pids.txt");
   const t0 = Date.now();
@@ -837,9 +835,72 @@ test("runChild: when onSpawn throws the group is gone and no timer is left befor
   assert.ok(Date.now() - t0 < 12_000);
   const out = JSON.parse(r.stdout);
   assert.match(out.error, /could not record the reviewer's process group in the lock: lock unwritable/);
-  assert.equal(out.groupGone, true); assert.equal(out.kidGone, true);
+  assert.equal(out.groupGone, true);
+  assert.equal(out.started, false, "the gate closed without go, so the reviewer command never ran");
 });
 
+test("a runner killed after the reviewer's gate is spawned but before its group is in the lock leaves nothing running", async () => {
+  const r = repo();
+  const reviews = scratch();
+  const pause = scratch("good-agent-pause-");
+  const started = join(reviews, "started.txt");
+  try {
+    const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, GOOD_AGENT_TEST_PAUSE: pause, NODE_TEST_CONTEXT: "child-v8", FAKE_STARTED_FILE: started, FAKE_SLEEP: "2" };
+    const child = spawn(process.execPath, [BIN, "review", "--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { cwd: r.root, env });
+    await waitFor(() => existsSync(join(pause, "paused")));
+    assert.equal(lockPgid(reviews, "codex"), null, "the lock does not name a group yet");
+    child.kill("SIGKILL");
+    await new Promise((done) => child.on("close", done));
+    await new Promise((done) => setTimeout(done, 1500));
+    assert.ok(!existsSync(started), "the reviewer was never exec'd: its gate saw end of input and exited");
+    // The dead runner's lock has no group to wait for, so the next review takes it over.
+    const ok = review(["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { root: r.root, reviews, env: { FAKE_STARTED_FILE: started } });
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.ok(existsSync(started), "a normal run starts the reviewer");
+    assert.ok(!existsSync(join(reviews, "codex.lock")));
+  } finally { r.cleanup(); }
+});
+
+test("the prompt reaches the reviewer through the start gate, for both reviewers", () => {
+  const r = repo();
+  try {
+    for (const by of ["codex", "claude"]) {
+      const stdin = join(scratch("good-agent-stdin-"), "prompt.txt");
+      const res = review(["--by", by, "--prompt", "story", "--task", "trellis/active/GA0002.md", "--verified", "npm test"], { root: r.root, env: { FAKE_STDIN_FILE: stdin } });
+      assert.equal(res.status, 0, res.stderr);
+      const got = readFileSync(stdin, "utf8");
+      assert.ok(got.includes("trellis/active/GA0002.md") && got.includes('"findings"'), `${by}: the reviewer received the whole prompt`);
+      assert.ok(!got.startsWith("go"), `${by}: the gate's go line is not part of the prompt`);
+    }
+  } finally { r.cleanup(); }
+});
+
+test("from a subdirectory the reviewer and the MCP listings run at the repository top and the prompt anchors paths there", () => {
+  const r = repo();
+  try {
+    mkdirSync(join(r.root, "sub", "sub"), { recursive: true });
+    writeFileSync(join(r.root, "sub", "task.md"), TASK.replace("GA0002", "GA0007"));
+    writeFileSync(join(r.root, "sub", "sub", "task.md"), "decoy\n");
+    writeFileSync(join(r.root, "sub", "untracked.txt"), "u\n");
+    r.g("add", "sub/task.md", "sub/sub/task.md"); r.g("commit", "-q", "-m", "sub");
+    for (const [by, prompt] of [["codex", "diff"], ["claude", "diff"], ["codex", "story"]]) {
+      const stdin = join(scratch("good-agent-stdin-"), "prompt.txt");
+      const args = ["--by", by, "--prompt", prompt, "--task", "task.md", "--cwd", join(r.root, "sub")];
+      const res = review(prompt === "diff" ? [...args, "--base", r.base] : args, { root: r.root, env: { FAKE_STDIN_FILE: stdin } });
+      assert.equal(res.status, 0, `${by} ${prompt}: ${res.stderr}`);
+      const cwds = res.record.split("\n").filter((l) => l.startsWith("ENV:")).map((l) => /CWD=(.*)$/.exec(l)?.[1] ?? "");
+      const execAndLists = res.record.split("\n").map((l, i, all) => ((l.startsWith("ARGV:exec") || l.startsWith("ARGV:-p") || l.startsWith("ARGV:mcp list")) ? all[i + 1] : null)).filter((l) => l !== null);
+      assert.ok(execAndLists.length >= 1);
+      for (const l of execAndLists) assert.equal(realpathSync(/CWD=(.*)$/.exec(/** @type {string} */ (l))?.[1] ?? ""), realpathSync(r.root), `${by}: runs at the top`);
+      void cwds;
+      const got = readFileSync(stdin, "utf8");
+      assert.match(got, /(story|review the) sub\/task\.md/, `${by} ${prompt}: the task is named from the top`);
+      assert.ok(!/(story|review the) (sub\/)?sub\/sub\/task\.md|(story|review the) task\.md/.test(got), "not the bare or the decoy path");
+      if (prompt === "diff") assert.ok(got.includes("?\tsub/untracked.txt"), "untracked paths are top-relative too");
+      if (by === "codex") assert.ok(res.record.includes(`-C ${realpathSync(r.root)}`) || res.record.includes(`-C ${r.root}`), "codex -C is the top");
+    }
+  } finally { r.cleanup(); }
+});
 test("a reviewer group that survives SIGKILL fails the round and keeps the lock until the group is gone", () => {
   const r = repo();
   const reviews = scratch();
