@@ -34,6 +34,8 @@ if [ "$1" = "exec" ]; then
     sleep "${FAKE_ORPHAN_SLEEP:-30}" </dev/null >/dev/null 2>&1 &
     [ -n "$FAKE_ORPHAN_FILE" ] && echo "$$ $!" > "$FAKE_ORPHAN_FILE"
   fi
+  # FAKE_BREAK_INDEX=1: make the repository unreadable for git, so the runner's digest after the review fails.
+  if [ -n "$FAKE_BREAK_INDEX" ]; then chmod 000 "$(git rev-parse --git-dir)/index"; fi
   if [ -n "$FAKE_STDERR" ]; then echo "$FAKE_STDERR" >&2; fi
   if [ -z "$FAKE_NO_OUTPUT" ] && [ -n "$out" ]; then printf '%s\n' "${FAKE_OUTPUT:-$EMPTY}" > "$out"; fi
   exit "${FAKE_EXIT:-0}"

@@ -22,7 +22,7 @@ good-agent review [--by codex|claude] [--author codex|claude]
 | `--author` | Who wrote the work; selects the reviewer and is stated in the prompt. |
 | `--prompt` | `diff` (default; requires `--base`), `story` and `plan` (require `--task`; `plan` reads the task's `## Plan` section), `design` (requires `--task`, accepts `--base`). |
 | `--base` | The commit the change started from. Verified to be a commit and resolved to its full sha, which the prompt and `.meta.json` record. |
-| `--task` | The task file. Fixes the review id from its front-matter `id` (else its basename), so on a shared branch each task's rounds are filed under its own id. Accepted by every prompt type. |
+| `--task` | The task file. Fixes the review id from its front-matter `id` (else its basename), so on a shared branch each task's rounds are filed under its own id. Accepted by every prompt type. Its real path (symlinks resolved) must be inside the repository's working tree, since the prompt names it by a repo-relative path; otherwise exit 2. |
 | `--prior` | A JSON array of findings from the previous round (each must be a valid finding); the prompt asks the reviewer to confirm each is resolved, then review the whole subject again. |
 | `--verified` | A command that already passed on this tree, repeatable; stated in the diff prompt so the reviewer does not re-run gates. |
 | `--model`, `--effort` | Override the per-tool ceiling from config (`review.codex`, `review.claude`). A missing model means the tool's own default. |
@@ -49,7 +49,8 @@ the message names the log).
    exits 2 with `good-agent review needs a git working tree; <root> is not
    inside one` before the lock and before any reviewer CLI runs. Then loads
    config, validates flags (all exit 2, before any reviewer or its CLI runs), refuses a reviews directory inside the repository being
-   reviewed (the whole working tree, not only `--cwd`), and derives the review id: the task's
+   reviewed (the whole working tree, not only `--cwd`), refuses a task whose
+   real path is outside the working tree, and derives the review id: the task's
    front-matter `id`, else the task file's basename, else the first
    `/`-separated branch segment matching `^[A-Za-z]+[0-9]+$` uppercased,
    else the branch name with `/` replaced by `-`; a detached HEAD without
@@ -97,7 +98,11 @@ the message names the log).
    all taken from the top of the working tree (`git rev-parse
    --show-toplevel`) even when the command runs from a subdirectory.
    An empty commit or a staged change therefore moves it even when the
-   status does not. The prompt is the body of the review-loop skill's
+   status does not. The task file is fingerprinted on its own (real path
+   plus content hash, before and after), because the tree digest cannot see
+   an ignored file: a task that changed, was retargeted or became unreadable
+   during the review is `REVIEW_UNSAFE` even when the tree digest is
+   unchanged. The prompt is the body of the review-loop skill's
    `references/review-<prompt>.md` (the text before the first `<!-- ENDING:`
    marker, without its title line) with the placeholders filled in one pass
    (`{{TASK}}`, `{{BASE}}` and `{{HEAD}}` as full shas, `{{VERIFIED}}`,
@@ -200,7 +205,8 @@ files per round, named `<id>-<prompt>-rN`:
   is how a round is reserved, and rewritten at the end with the reviewer,
   author, model, effort, CLI version, base (as given and as a sha), head,
   task, verified commands, attempt, start time, `status` (`ok`,
-  `REVIEW_ERROR` or `REVIEW_UNSAFE`), `error`, both digests, `tree_stable`,
+  `REVIEW_ERROR` or `REVIEW_UNSAFE`), `error`, both tree digests,
+  `tree_stable`, both task fingerprints (`task_digest_before`, `task_digest_after`),
   exit code, `timed_out`, seconds and the finding count.
 - `.log`: the command, the full prompt, stdout and stderr (and the error
   for a failed round).

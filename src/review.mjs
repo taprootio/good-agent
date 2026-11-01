@@ -6,6 +6,7 @@
  * findings (docs/design.md section 12; docs/review-runner.md).
  */
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -250,6 +251,19 @@ function trapSignals() {
 }
 
 /**
+ * A fingerprint of the task file the review is about: its real path and
+ * content. The tree digest does not cover an ignored file, so the subject is
+ * checked on its own. Null when unreadable.
+ * @param {string} path
+ */
+function taskFingerprint(path) {
+  try {
+    const real = realpathSync(path);
+    return createHash("sha256").update(real).update("\0").update(readFileSync(real)).digest("hex");
+  } catch { return null; }
+}
+
+/**
  * Whether anything is left in a process group. The test-only override
  * (honoured only inside a `node --test` process) reports the group alive
  * forever, to exercise the survived-SIGKILL path that cannot be made on demand.
@@ -434,6 +448,14 @@ async function review(args, out, err) {
     try { isFile = statSync(taskAbs).isFile(); } catch { /* missing */ }
     if (!isFile) throw new ReviewUsageError(`task file not found: ${values.task}`);
   }
+  // The prompt names the task by a repo-relative path and the digest must be
+  // able to vouch for it, so its real path (symlinks resolved) has to be inside
+  // the working tree.
+  const top = realPath(topLevel(root));
+  const taskReal = taskAbs ? realpathSync(taskAbs) : null;
+  if (taskReal && !isInside(top, taskReal)) {
+    throw new ReviewUsageError(`task file ${values.task} resolves to ${taskReal}, outside the repository at ${top}; the review prompt names it by a repo-relative path`);
+  }
   if (prompt === "plan" && taskAbs && !/^## Plan\s*$/m.test(readFileSync(taskAbs, "utf8"))) {
     throw new ReviewUsageError(`${values.task} has no "## Plan" section; the work-task skill writes it before asking for plan review`);
   }
@@ -469,7 +491,7 @@ async function review(args, out, err) {
   }
   const id = deriveId(root, values.task);
   const promptsDir = values["prompts-dir"] ? resolve(values["prompts-dir"]) : undefined;
-  const taskLabel = taskAbs && isInside(root, taskAbs) ? relative(root, taskAbs).split("\\").join("/") : (values.task ?? id);
+  const taskLabel = taskReal ? relative(top, taskReal).split(sep).join("/") : id;
 
   // From here on the reviewer's own CLI is involved.
   const deadline = Date.now() + timeoutMinutes * 60_000;
@@ -499,6 +521,10 @@ async function review(args, out, err) {
     let digestBefore = null;
     /** @type {string | null} */
     let digestAfter = null;
+    /** @type {string | null} */
+    let taskBefore = null;
+    /** @type {string | null} */
+    let taskAfter = null;
     /** @type {{ status: number | null, timedOut: boolean }} */
     let ran = { status: null, timedOut: false };
     /**
@@ -508,12 +534,16 @@ async function review(args, out, err) {
      */
     const fail = (status, message) => {
       writeFileSync(round.logPath, `${logText}\n--- ${status} ---\n${message}\n`);
-      writeJson(round.metaPath, { ...base, status, error: message, digest_before: digestBefore, digest_after: digestAfter, tree_stable: digestBefore !== null && digestAfter !== null ? digestBefore === digestAfter : null, exit_code: ran.status, timed_out: ran.timedOut, seconds: Math.round((Date.now() - started) / 1000) });
+      writeJson(round.metaPath, { ...base, status, error: message, digest_before: digestBefore, digest_after: digestAfter, task_digest_before: taskBefore, task_digest_after: taskAfter, tree_stable: digestBefore !== null && digestAfter !== null ? digestBefore === digestAfter : null, exit_code: ran.status, timed_out: ran.timedOut, seconds: Math.round((Date.now() - started) / 1000) });
       err(`good-agent: ${status}: ${message} (round ${name}; log: ${round.logPath})`);
       return EXIT.unsafe;
     };
     try {
       digestBefore = treeDigest(root);
+      if (taskAbs) {
+        taskBefore = taskFingerprint(taskAbs);
+        if (taskBefore === null) return fail("REVIEW_ERROR", `the task file ${values.task} cannot be read`);
+      }
       if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
       if (Date.now() >= deadline) return fail("REVIEW_ERROR", BUDGET_EXHAUSTED);
       const promptText = buildPrompt({ prompt, root, taskLabel, baseSha, author: values.author, verified: values.verified, prior, promptsDir });
@@ -538,7 +568,10 @@ async function review(args, out, err) {
       if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
       if (Date.now() >= deadline) return fail("REVIEW_ERROR", BUDGET_EXHAUSTED);
       const result = await runChild(reviewer, argv, { cwd: root, env, input: promptText, timeoutMs: deadline - Date.now(), trap, onSpawn: (pgid) => lock?.setChild(pgid) });
+      // Before anything that can throw: a group that outlived SIGKILL keeps the lock.
+      if (result.survivor) retainLock = true;
       digestAfter = treeDigest(root);
+      if (taskAbs) taskAfter = taskFingerprint(taskAbs);
       ran = { status: result.status, timedOut: result.timedOut };
       logText = `$ ${reviewer} ${argv.map((a) => (a === "" || /\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}\n\n--- prompt ---\n${promptText}\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}\n`;
       if (result.survivor) {
@@ -546,6 +579,7 @@ async function review(args, out, err) {
         return fail("REVIEW_ERROR", `reviewer process group ${result.survivor} survived SIGKILL; the lock is retained until it exits`);
       }
       if (digestBefore !== digestAfter) return fail("REVIEW_UNSAFE", "the tree changed during the review; the result is void, refile the round");
+      if (taskAbs && taskBefore !== taskAfter) return fail("REVIEW_UNSAFE", `the task file ${values.task} ${taskAfter === null ? "became unreadable" : "changed"} during the review; the result is void, refile the round`);
       if (result.interrupted) return fail("REVIEW_ERROR", `interrupted by ${result.interrupted}; ${reviewer} was killed`);
       if (result.timedOut) return fail("REVIEW_ERROR", `${reviewer} exceeded ${timeoutMinutes} minutes and was killed`);
       if (result.error) return fail("REVIEW_ERROR", `${reviewer} could not be started: ${result.error.message}`);
@@ -571,7 +605,7 @@ async function review(args, out, err) {
       try { findings = validateFindings(output); } catch (error) { return fail("REVIEW_ERROR", /** @type {Error} */ (error).message); }
       writeFileSync(round.logPath, logText);
       writeJson(round.jsonPath, findings);
-      writeJson(round.metaPath, { ...base, status: "ok", digest_before: digestBefore, digest_after: digestAfter, tree_stable: true, exit_code: 0, timed_out: false, seconds: Math.round((Date.now() - started) / 1000), finding_count: findings.length });
+      writeJson(round.metaPath, { ...base, status: "ok", digest_before: digestBefore, digest_after: digestAfter, task_digest_before: taskBefore, task_digest_after: taskAfter, tree_stable: true, exit_code: 0, timed_out: false, seconds: Math.round((Date.now() - started) / 1000), finding_count: findings.length });
       if (values.json) out(JSON.stringify(findings, null, 2));
       else {
         out(`good-agent review ${name} by ${reviewer} (${model ? `${model}, ` : ""}${effort})`);

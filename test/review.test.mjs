@@ -7,7 +7,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { BIN, REPO, tempTree } from "./helpers.mjs";
@@ -857,5 +857,91 @@ test("a reviewer group that survives SIGKILL fails the round and keeps the lock 
     const next = review(base, { root: r.root, reviews });
     assert.equal(next.status, 0, next.stderr);
     assert.ok(!existsSync(join(reviews, "codex.lock")));
+  } finally { r.cleanup(); }
+});
+
+test("a surviving reviewer group keeps the lock even when the digest after the review fails", () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const res = review(["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { root: r.root, reviews, env: { GOOD_AGENT_TEST_GROUP_ALIVE: "1", NODE_TEST_CONTEXT: "child-v8", FAKE_BREAK_INDEX: "1" } });
+    assert.equal(res.status, 3, res.stderr);
+    assert.match(res.stderr, /REVIEW_ERROR: the index cannot be fingerprinted/);
+    const lock = JSON.parse(readFileSync(join(reviews, "codex.lock"), "utf8"));
+    assert.equal(typeof lock.pgid, "number", "the lock still records the group");
+  } finally { chmodSync(join(r.root, ".git", "index"), 0o644); r.cleanup(); }
+});
+
+/**
+ * Start a review of a task with a sleeping fake, run `during` once the
+ * reviewer is running, and return the finished result.
+ * @param {string} root
+ * @param {string} reviews
+ * @param {string[]} args
+ * @param {() => void} during
+ */
+async function reviewWhile(root, reviews, args, during) {
+  const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_SLEEP: "2" };
+  const child = spawn(process.execPath, [BIN, "review", ...args], { cwd: root, env });
+  let stderr = "";
+  child.stderr.on("data", (d) => { stderr += d; });
+  await waitFor(() => lockPgid(reviews, "codex") !== null);
+  during();
+  const status = await new Promise((done) => child.on("close", done));
+  return { status, stderr };
+}
+
+test("a task edited during the review voids the round, tracked or ignored, and the meta records both fingerprints", async () => {
+  const r = repo();
+  try {
+    // Tracked: the tree digest sees it too.
+    const reviews = scratch();
+    const args = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    let res = await reviewWhile(r.root, reviews, args, () => writeFileSync(join(r.root, "trellis/active/GA0002.md"), `${TASK}\nedited\n`));
+    assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /REVIEW_UNSAFE/);
+    r.g("checkout", "-q", "--", "trellis/active/GA0002.md");
+    // Ignored: only the task fingerprint can see it.
+    writeFileSync(join(r.root, ".gitignore"), "notes/\n");
+    mkdirSync(join(r.root, "notes"));
+    writeFileSync(join(r.root, "notes", "GA0009.md"), TASK.replace("GA0002", "GA0009"));
+    r.g("add", "."); r.g("commit", "-q", "-m", "ignore notes");
+    const reviews2 = scratch();
+    res = await reviewWhile(r.root, reviews2, ["--by", "codex", "--prompt", "story", "--task", "notes/GA0009.md"], () => writeFileSync(join(r.root, "notes", "GA0009.md"), `${TASK}\nchanged while reviewed\n`));
+    assert.equal(res.status, 3, res.stderr);
+    assert.match(res.stderr, /REVIEW_UNSAFE: the task file notes\/GA0009\.md changed during the review/);
+    const m = metas(reviews2)["GA0009-story-r1"];
+    assert.equal(m.status, "REVIEW_UNSAFE");
+    assert.equal(m.tree_stable, true, "the tree digest alone saw nothing");
+    assert.match(m.task_digest_before, /^[0-9a-f]{64}$/); assert.match(m.task_digest_after, /^[0-9a-f]{64}$/);
+    assert.notEqual(m.task_digest_before, m.task_digest_after);
+    // An unchanged ignored task is fine and records equal fingerprints.
+    const ok = review(["--by", "codex", "--prompt", "story", "--task", "notes/GA0009.md"], { root: r.root, reviews: reviews2 });
+    assert.equal(ok.status, 0, ok.stderr);
+    const m2 = metas(reviews2)["GA0002-story-r1"]; // the edited file now carries the GA0002 front matter
+    assert.equal(m2.status, "ok"); assert.equal(m2.task_digest_before, m2.task_digest_after);
+    // A task removed during the review is unreadable afterwards.
+    res = await reviewWhile(r.root, reviews2, ["--by", "codex", "--prompt", "story", "--task", "notes/GA0009.md"], () => rmSync(join(r.root, "notes", "GA0009.md")));
+    assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /became unreadable/);
+  } finally { r.cleanup(); }
+});
+
+test("a task whose real path is outside the repository is exit 2", () => {
+  const r = repo();
+  const outside = scratch("good-agent-outside-");
+  try {
+    writeFileSync(join(outside, "task.md"), TASK);
+    symlinkSync(join(outside, "task.md"), join(r.root, "linked.md"));
+    for (const task of ["linked.md", join(outside, "task.md")]) {
+      const res = review(["--by", "codex", "--prompt", "story", "--task", task], { root: r.root });
+      assert.equal(res.status, 2, `${task}: ${res.stderr}`);
+      assert.match(res.stderr, /outside the repository/);
+      assert.equal(res.record, "", "no reviewer ran");
+    }
+    // A symlink that stays inside the repository is fine and is named by its real path.
+    symlinkSync(join(r.root, "trellis", "active", "GA0002.md"), join(r.root, "inner.md"));
+    const ok = review(["--by", "codex", "--prompt", "story", "--task", "inner.md"], { root: r.root });
+    assert.equal(ok.status, 0, ok.stderr);
+    const slugDir = readdirSync(ok.reviews).find((n) => !n.includes(".lock") && n !== "record.txt") ?? "";
+    assert.ok(readFileSync(join(ok.reviews, slugDir, "GA0002-story-r1.log"), "utf8").includes("trellis/active/GA0002.md"));
   } finally { r.cleanup(); }
 });
