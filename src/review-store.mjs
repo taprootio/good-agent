@@ -177,6 +177,19 @@ export async function acquireLock(root, reviewer, options) {
     : holder.host === hostname() && typeof holder.pid === "number" && !pidAlive(holder.pid) && !(typeof holder.pgid === "number" && groupAlive(holder.pgid));
   /** @param {NonNullable<ReturnType<typeof readHolder>>} holder */
   const describe = (holder) => `pid ${holder.pid} on ${holder.host}${typeof holder.pgid === "number" ? `, whose reviewer process group ${holder.pgid} may still be running` : ""}`;
+  /**
+   * Wait a little, or give up: `--no-wait` is an immediate usage error, and
+   * the wait never goes past the deadline.
+   * @param {string} noWait  the usage error for `--no-wait`
+   * @param {string} timedOut  the error when the deadline passes
+   * @param {number} ms
+   */
+  const waitOrFail = async (noWait, timedOut, ms) => {
+    if (!options.wait) throw new ReviewUsageError(noWait);
+    const left = options.deadline - Date.now();
+    if (left <= 0) throw new Error(timedOut);
+    await new Promise((r) => setTimeout(r, Math.max(1, Math.min(ms, left))));
+  };
   for (;;) {
     const interrupted = options.aborted?.();
     if (interrupted) throw new Error(`interrupted by ${interrupted} while waiting for the ${reviewer} lock`);
@@ -194,6 +207,7 @@ export async function acquireLock(root, reviewer, options) {
     }
     const holder = readHolder();
     if (stale(holder)) {
+      let guarded = false;
       try {
         closeSync(openSync(guard, "wx"));
         try {
@@ -201,16 +215,22 @@ export async function acquireLock(root, reviewer, options) {
           if (stale(again) && again?.pid === holder?.pid && again?.started === holder?.started) unlinkSync(path);
         } finally { try { unlinkSync(guard); } catch { /* gone */ } }
       } catch (error) {
-        if (/** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST" && ageMs(guard) > 30_000) { try { unlinkSync(guard); } catch { /* raced */ } }
-        else if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST" && /** @type {NodeJS.ErrnoException} */ (error).code !== "ENOENT") throw error;
+        const code = /** @type {NodeJS.ErrnoException} */ (error).code;
+        if (code === "EEXIST") {
+          if (ageMs(guard) > 30_000) { try { unlinkSync(guard); } catch { /* raced */ } } else guarded = true;
+        } else if (code !== "ENOENT") throw error;
       }
-      await new Promise((r) => setTimeout(r, 50));
+      // Another process is taking the lock over: wait for it, or fail fast.
+      if (guarded) await waitOrFail(`another process is taking over the ${reviewer} lock ${path}; wait for it or drop --no-wait`, `timed out waiting for another process to take over the ${reviewer} lock ${path}`, 50);
+      else await new Promise((r) => setTimeout(r, 10));
       continue;
     }
-    if (holder === null) { await new Promise((r) => setTimeout(r, 100)); continue; }
-    if (!options.wait) throw new ReviewUsageError(`another ${reviewer} review is running (${describe(holder)}); wait for it or pass --no-wait to fail fast`);
-    if (Date.now() > options.deadline) throw new Error(`timed out waiting for the ${reviewer} lock held by ${describe(holder)}`);
-    await new Promise((r) => setTimeout(r, 1000));
+    if (holder === null) {
+      // Unreadable and younger than the grace period: someone may still be writing it.
+      await waitOrFail(`the ${reviewer} lock ${path} is unreadable (it may be mid-write or corrupt); wait for it or drop --no-wait`, `timed out waiting for the unreadable ${reviewer} lock ${path}`, 100);
+      continue;
+    }
+    await waitOrFail(`another ${reviewer} review is running (${describe(holder)}); wait for it or pass --no-wait to fail fast`, `timed out waiting for the ${reviewer} lock held by ${describe(holder)}`, 1000);
   }
 }
 

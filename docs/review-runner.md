@@ -53,8 +53,18 @@ the message names the log).
    `--task` is exit 2.
 2. Checks the reviewer's `--version` against the minimum these flags were
    verified with (`codex` 0.156.0, `claude` 2.1.300; older is exit 3, before
-   any round is reserved) and strips API keys from the environment so the
-   subscription login is the only credential.
+   any round is reserved) and strips all eight credentials and provider
+   switches (`CODEX_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+   `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL` and the Bedrock, Vertex and
+   Foundry switches) from the environment of every process it starts, for
+   either reviewer, so the subscription login is the only credential. The
+   run's deadline (`--timeout-minutes`) starts before this check. The
+   version check, each `codex mcp list` and every wait get 30 seconds or
+   what is left of the budget, whichever is less, and if no budget is left
+   at any step before the reviewer would start (version, lock, digest, MCP
+   listings) the run fails with `REVIEW_ERROR: timeout budget exhausted
+   before the review started` (exit 3, recorded on the round once one is
+   reserved) instead of starting the reviewer with a token timeout.
 3. Takes the per-reviewer lock at the reviews root (one review per login at
    a time, across repositories). Once the reviewer is running, the lock
    also records its process group id. A lock is taken over only when its
@@ -62,8 +72,11 @@ the message names the log).
    runner that was SIGKILLed while its detached reviewer still runs keeps
    the lock (a waiting review waits; `--no-wait` exits 2 and names the
    group) until the reviewer exits. An unreadable lock more than five
-   seconds old is taken over as well; a lock held on another host never is. A takeover goes through an
-   exclusively created guard file and re-reads the lock first, so two
+   seconds old is taken over as well; a younger one is waited for like a
+   live holder, except that `--no-wait` exits 2 naming it at once and the
+   wait never outlasts the deadline. The same holds for a takeover guard
+   another process holds. A lock held on another host is never taken over.
+   A takeover goes through an exclusively created guard file and re-reads the lock first, so two
    waiters cannot delete each other's fresh lock. Waiting counts against the
    timeout; `--no-wait` exits 2 instead.
 4. Reserves the round by creating `<id>-<prompt>-rN.meta.json` with the
@@ -91,7 +104,11 @@ the message names the log).
    below and the prompt on stdin. A timeout, or a SIGINT, SIGTERM or SIGHUP
    to the runner at any point from the lock wait onward, kills the whole
    group; the round is recorded as `REVIEW_ERROR` (`interrupted by <signal>`)
-   and the lock is released.
+   and the lock is released. When the direct child exits, anything it left
+   running in the group is sent SIGTERM, given two seconds, then sent
+   SIGKILL, and the run resumes only once the group is gone, so the lock is
+   never released while part of a review still runs (success and error
+   paths alike).
 7. Records the digest again. A moved tree makes the result void
    (`REVIEW_UNSAFE`). A non-zero exit (with the first stderr line that names
    a rejected flag), a timeout, an interruption, missing output, a
@@ -131,8 +148,8 @@ servers are listed from the reviewed tree (so a project `.codex/config.toml`
 is seen), switched off by name and re-listed, and the review is refused if
 any stays enabled or a name cannot be addressed by `-c`; `--ephemeral`
 persists no session; `--output-schema` forces the findings object; `-o`
-captures the final message. The environment loses `OPENAI_API_KEY` and
-`CODEX_API_KEY`.
+captures the final message. The environment loses all eight credentials
+and switches listed in step 2, not only the Codex pair.
 
 Claude Code (`2.1.310`, `claude --help`):
 
@@ -156,8 +173,8 @@ such as `git diff --output`); `--disallowedTools` removes mutation and
 delegation; an empty strict MCP config loads no servers; `--json-schema`
 forces the findings object inside the result envelope, which the runner
 checks for `type: result`, `subtype: success`, `is_error: false`. The
-environment loses `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
-`ANTHROPIC_BASE_URL` and the Bedrock, Vertex and Foundry switches.
+environment loses the same eight credentials and switches, including
+`OPENAI_API_KEY` and `CODEX_API_KEY`.
 
 ## History
 
@@ -233,13 +250,13 @@ directory. GA0006 retires the exchange only when no row below is blank.
 | --- | --- |
 | T1 wait refuses a review whose tree no longer matches the request | covered by "failure modes": a tree that moved during the review is `REVIEW_UNSAFE`, exit 3 (digest before and after) |
 | T2 dead lock holder never taken over by two racing watchers | changed by design: with no long-lived watcher, a lock whose runner pid is dead on this host and whose recorded reviewer group is gone is taken over, through an exclusive guard file; covered by "lock contention" and "a SIGKILLed runner" |
-| T3 empty lock never taken over | changed by design: an unreadable lock is taken over once it is more than five seconds old (a crash between creating and filling it); covered by "a half-written lock" |
+| T3 empty lock never taken over | changed by design: an unreadable lock is taken over once it is more than five seconds old (a crash between creating and filling it); covered by "a half-written lock" and "an unreadable lock honours --no-wait and the deadline" |
 | T4 second watcher refused while the first holds the lock; released on SIGTERM | covered by "lock contention" (wait, timeout, `--no-wait`) and "a Codex and a Claude review" (the same reviewer queues); the lock is released in `finally` and after failures ("failure modes") |
 | T5 recovery of terminal, dead and orphaned claims | not applicable: watcher-only. There are no claims; a round's `.meta.json` records its status and a failed round keeps its number ("failure modes") |
 | T6 orphan found by literal path with regex metacharacters | not applicable: watcher-only. The reviewer is a child of the runner and its whole process group is killed on timeout ("failure modes") |
 | T7 a watcher that cannot run the reviewer refuses to start | covered by "old CLI version": a missing CLI or an old version is refused before any round |
 | T8 a mailbox path `ps` would rewrite is refused | not applicable: watcher-only (no `ps` scanning, no mailbox paths) |
-| T9 a review runs isolated and keyless; a signal stops the watcher | covered by "codex happy path" and "claude happy path": hardened flags and stripped keys asserted; a SIGTERM or SIGHUP to the runner kills the reviewer's process group and fails the round, covered by "a SIGTERM to the runner" and "a SIGHUP to the runner" |
+| T9 a review runs isolated and keyless; a signal stops the watcher | covered by "codex happy path" and "claude happy path": hardened flags asserted and all eight credentials asserted unset in both; "a reviewer that succeeds and leaves a grandchild behind" (and "fails and leaves") shows the group is reaped before the lock is released; a SIGTERM or SIGHUP to the runner kills the reviewer's process group and fails the round, covered by "a SIGTERM to the runner" and "a SIGHUP to the runner" |
 | T10 a reviewer failure stops the watcher so the queue stays unclaimed | not applicable: watcher-only. There is no queue; a reviewer failure is `REVIEW_ERROR` for that round ("failure modes") |
 | T11 a claim whose runner pid was reused is recovered | not applicable: watcher-only (no claims) |
 | T12 request.mjs refuses a second filing while one is queued | not applicable: watcher-only (no filings); the per-reviewer lock serializes runs ("lock contention") |

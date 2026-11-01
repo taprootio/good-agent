@@ -217,7 +217,7 @@ test("codex happy path: hardened flags, keys stripped, history written, exit 0, 
     assert.ok(argv.includes("-c notify=[]"), "notify=[]");
     const envs = envLines(res.record);
     assert.ok(envs.length >= 3, "version, two mcp listings and the exec were all recorded");
-    for (const e of envs) assert.ok(e.OPENAI_API_KEY === "unset" && e.CODEX_API_KEY === "unset", "codex keys stripped from every invocation");
+    for (const e of envs) for (const k of Object.keys(SECRETS)) assert.equal(e[k], "unset", `${k} stripped from every codex invocation`);
     const listings = res.record.split("\n").map((l, i, all) => (l.startsWith("ARGV:mcp list --json") ? all[i + 1] : null)).filter((l) => l !== null);
     assert.equal(listings.length, 2, "listed, then re-listed");
     for (const l of listings) assert.equal(/CWD=(.*)$/.exec(/** @type {string} */ (l))?.[1] && realpathSync(/CWD=(.*)$/.exec(/** @type {string} */ (l))?.[1] ?? ""), realpathSync(r.root), "mcp list runs in the repository root");
@@ -670,4 +670,79 @@ test("the live-denial probe passes only when the reviewer ran and the denial was
   assert.equal(res.status, 1); assert.match(res.stderr, /no permission_denials entry for a Bash touch/);
   res = probe("claude", { FAKE_DENIALS: touch, FAKE_EXIT: "3" });
   assert.equal(res.status, 1); assert.match(res.stderr, /the review itself failed/);
+});
+
+for (const [label, env, expected] of /** @type {const} */ ([["succeeds", {}, 0], ["fails", { FAKE_EXIT: "2" }, 3]])) {
+  test(`a reviewer that ${label} and leaves a grandchild behind has its process group reaped before the runner returns`, async () => {
+    const r = repo();
+    const reviews = scratch();
+    const file = join(reviews, "orphan.txt");
+    try {
+      const res = review(["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { root: r.root, reviews, env: { FAKE_ORPHAN: "1", FAKE_ORPHAN_SLEEP: "20", FAKE_ORPHAN_FILE: file, ...env } });
+      const [pgid, orphan] = readFileSync(file, "utf8").trim().split(" ").map(Number);
+      const dead = (/** @type {number} */ pid) => { try { process.kill(pid, 0); return false; } catch (e) { return /** @type {NodeJS.ErrnoException} */ (e).code === "ESRCH"; } };
+      const leaked = !dead(-pgid) || !dead(orphan);
+      if (leaked) { try { process.kill(-pgid, "SIGKILL"); } catch { /* gone */ } }
+      assert.equal(res.status, expected, res.stderr);
+      assert.ok(!leaked, "the grandchild and its group are gone when the runner returns");
+      assert.ok(!existsSync(join(reviews, "codex.lock")), "lock released after the group is gone");
+    } finally { r.cleanup(); }
+  });
+}
+
+test("a reviews directory named like a parent-looking sibling (..reviews) inside the repository is refused", () => {
+  const r = repo();
+  try {
+    const res = review(["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { root: r.root, reviews: join(r.root, "..reviews") });
+    assert.equal(res.status, 2, res.stderr); assert.match(res.stderr, /inside the repository/);
+    assert.equal(res.record, "");
+  } finally { r.cleanup(); }
+});
+
+test("the timeout budget covers the version check and the MCP listings; none left is REVIEW_ERROR, never a 1 second floor", () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const base = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md", "--timeout-minutes", "0.02"];
+    let t0 = Date.now();
+    let res = review(base, { root: r.root, reviews, env: { FAKE_VERSION_SLEEP: "4" } });
+    assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /REVIEW_ERROR: timeout budget exhausted before the review started/);
+    assert.ok(Date.now() - t0 < 3500, "the version check was cut off at the budget, not at 30 seconds or the fake's sleep");
+    assert.ok(!res.record.includes("ARGV:exec"));
+    assert.deepEqual(metas(reviews), {}, "no round was reserved yet");
+    t0 = Date.now();
+    res = review(base, { root: r.root, reviews, env: { FAKE_MCP_SLEEP: "4" } });
+    assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /REVIEW_ERROR: timeout budget exhausted before the review started/);
+    assert.ok(Date.now() - t0 < 3500);
+    assert.ok(!res.record.includes("ARGV:exec"), "the reviewer was never spawned");
+    assert.match(metas(reviews)["GA0002-story-r1"].error, /budget exhausted/);
+    assert.equal(metas(reviews)["GA0002-story-r1"].status, "REVIEW_ERROR");
+  } finally { r.cleanup(); }
+});
+
+test("an unreadable lock honours --no-wait and the deadline instead of waiting out its grace period", () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const lock = join(reviews, "codex.lock");
+    writeFileSync(lock, "");
+    const base = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    let t0 = Date.now();
+    let res = review([...base, "--no-wait"], { root: r.root, reviews });
+    assert.equal(res.status, 2, res.stderr); assert.match(res.stderr, /codex\.lock is unreadable/);
+    assert.ok(Date.now() - t0 < 2500, "fails at once, not after the five second grace");
+    assert.ok(!res.record.includes("ARGV:exec"));
+    t0 = Date.now();
+    res = review([...base, "--timeout-minutes", "0.02"], { root: r.root, reviews });
+    assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /timed out waiting for the unreadable codex lock/);
+    assert.ok(Date.now() - t0 < 4000, "gives up at the deadline, not after the grace period");
+    assert.ok(!res.record.includes("ARGV:exec"), "no review ran");
+    // A stale lock behind a takeover guard another process holds: no waiting with --no-wait.
+    writeFileSync(lock, JSON.stringify({ pid: 999999, host: hostname(), started: "then" }));
+    writeFileSync(`${lock}.takeover`, "");
+    res = review([...base, "--no-wait"], { root: r.root, reviews });
+    assert.equal(res.status, 2, res.stderr); assert.match(res.stderr, /taking over the codex lock/);
+    res = review([...base, "--timeout-minutes", "0.02"], { root: r.root, reviews });
+    assert.equal(res.status, 3, res.stderr); assert.match(res.stderr, /timed out waiting for another process to take over/);
+  } finally { r.cleanup(); }
 });

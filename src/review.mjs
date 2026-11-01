@@ -8,7 +8,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { ConfigError, loadConfig } from "./config.mjs";
@@ -151,25 +151,47 @@ function versionLess(a, b) {
   return false;
 }
 
+/** Every credential and provider switch removed for both reviewers, whichever one runs. */
+export const STRIPPED_ENVIRONMENT = [
+  "CODEX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+];
+
 /**
- * The environment every reviewer process sees: no API keys, so the review
- * uses the subscription login and never bills an API.
+ * The environment every reviewer process sees: no API keys or provider
+ * switches for either tool, so the review uses the subscription login and
+ * never bills an API.
  * @param {string} reviewer
  * @returns {Env}
  */
 export function reviewEnvironment(reviewer) {
+  void reviewer;
   const env = { ...process.env };
-  for (const k of ["CODEX_API_KEY", "OPENAI_API_KEY"]) delete env[k];
-  if (reviewer === "claude") for (const k of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"]) delete env[k];
+  for (const k of STRIPPED_ENVIRONMENT) delete env[k];
   return env;
+}
+
+export const BUDGET_EXHAUSTED = "timeout budget exhausted before the review started";
+
+/**
+ * The timeout for one setup call: 30 seconds or what is left of the run's
+ * budget, whichever is less. No budget left is an error, never a floor.
+ * @param {number} deadline
+ */
+function setupTimeout(deadline) {
+  const left = deadline - Date.now();
+  if (left <= 0) throw new Error(BUDGET_EXHAUSTED);
+  return Math.min(30_000, left);
 }
 
 /**
  * @param {string} reviewer
  * @param {Env} env
+ * @param {number} deadline
  */
-function checkVersion(reviewer, env) {
-  const r = spawnSync(reviewer, ["--version"], { encoding: "utf8", env, timeout: 30_000, killSignal: "SIGKILL" });
+function checkVersion(reviewer, env, deadline) {
+  const r = spawnSync(reviewer, ["--version"], { encoding: "utf8", env, timeout: setupTimeout(deadline), killSignal: "SIGKILL" });
+  if (r.error && /** @type {NodeJS.ErrnoException} */ (r.error).code === "ETIMEDOUT" && deadline - Date.now() <= 100) throw new Error(BUDGET_EXHAUSTED);
   if (r.error || r.status !== 0) throw new Error(`${reviewer} --version failed (${r.error?.message ?? `exit ${r.status}`}); is ${reviewer} installed and on PATH?`);
   const out = `${r.stdout}${r.stderr}`.trim();
   const min = MIN_VERSIONS[/** @type {"codex" | "claude"} */ (reviewer)];
@@ -185,12 +207,14 @@ function checkVersion(reviewer, env) {
  * unless the listing says `enabled: false`, in both listings.
  * @param {string} root
  * @param {Env} env
+ * @param {number} [deadline]  the run's deadline; each listing gets 30 seconds or what is left
  */
-export function codexIsolation(root, env) {
+export function codexIsolation(root, env, deadline = Date.now() + 10 * 60_000) {
   const overrides = CODEX_DISABLED_FEATURES.flatMap((f) => ["-c", `features.${f}=false`]);
   /** @param {string[]} extra */
   const list = (extra) => {
-    const r = spawnSync("codex", ["mcp", "list", "--json", ...extra], { cwd: root, encoding: "utf8", env, timeout: 30_000, killSignal: "SIGKILL" });
+    const r = spawnSync("codex", ["mcp", "list", "--json", ...extra], { cwd: root, encoding: "utf8", env, timeout: setupTimeout(deadline), killSignal: "SIGKILL" });
+    if (r.error && /** @type {NodeJS.ErrnoException} */ (r.error).code === "ETIMEDOUT" && deadline - Date.now() <= 100) throw new Error(BUDGET_EXHAUSTED);
     if (r.error || r.status !== 0) throw new Error(`codex mcp list --json failed (${r.error?.message ?? `exit ${r.status}`}): ${(r.stderr || "").trim().slice(0, 300)}`);
     const servers = JSON.parse(r.stdout);
     if (!Array.isArray(servers)) throw new Error("codex mcp list --json did not return an array");
@@ -225,6 +249,27 @@ function trapSignals() {
   return trap;
 }
 
+/** @param {number} pgid */
+function groupAlive(pgid) {
+  try { process.kill(-pgid, 0); return true; } catch (error) { return /** @type {NodeJS.ErrnoException} */ (error).code === "EPERM"; }
+}
+
+/**
+ * Terminate everything left in a reviewer's process group: SIGTERM, wait up
+ * to two seconds for the group to empty, then SIGKILL and wait for it to go.
+ * @param {number | undefined} pgid
+ */
+async function reapGroup(pgid) {
+  if (!pgid || process.platform === "win32" || !groupAlive(pgid)) return;
+  /** @param {number} ms */
+  const until = async (ms) => { const end = Date.now() + ms; while (groupAlive(pgid) && Date.now() < end) await new Promise((r) => setTimeout(r, 25)); };
+  try { process.kill(-pgid, "SIGTERM"); } catch { /* gone */ }
+  await until(2000);
+  if (!groupAlive(pgid)) return;
+  try { process.kill(-pgid, "SIGKILL"); } catch { /* gone */ }
+  await until(2000);
+}
+
 /**
  * Run the reviewer in its own process group so a timeout or a signal kills
  * everything it started, not only the direct child. `onSpawn` receives the
@@ -247,6 +292,8 @@ function runChild(command, argv, o) {
       try { if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* gone */ } }
     };
     let finished = false;
+    let reaped = false;
+    let closed = false;
     /** @type {NodeJS.Timeout | undefined} */
     let grace;
     const finish = () => {
@@ -266,8 +313,15 @@ function runChild(command, argv, o) {
     child.stderr?.on("data", (d) => { result.stderr += d; });
     child.stdin?.on("error", () => { /* the child exited before reading its prompt */ });
     child.on("error", (error) => { result.error = error; finish(); });
-    child.on("exit", (status, signal) => { result.status = status; result.signal = signal; grace = setTimeout(finish, 2000); });
-    child.on("close", finish);
+    // When the direct child exits, whatever it left running in the group is
+    // terminated (SIGTERM, up to two seconds, then SIGKILL) and reaped before
+    // the result resolves, so the caller releases the lock only once nothing
+    // of the review is still running.
+    child.on("exit", (status, signal) => {
+      result.status = status; result.signal = signal;
+      reapGroup(child.pid).then(() => { reaped = true; if (closed) finish(); else grace = setTimeout(finish, 2000); });
+    });
+    child.on("close", () => { closed = true; if (reaped) finish(); });
     child.stdin?.end(o.input);
   });
 }
@@ -283,6 +337,18 @@ function realPath(path) {
     const parent = dirname(path);
     return parent === path ? path : join(realPath(parent), basename(path));
   }
+}
+
+/**
+ * Whether `child` is `parent` or below it. A relative path leaves the parent
+ * only when it is `..` or starts with `..` and a separator, so a sibling
+ * named `..reviews` is inside.
+ * @param {string} parent
+ * @param {string} child
+ */
+function isInside(parent, child) {
+  const rel = relative(parent, child);
+  return !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel));
 }
 
 /** 35791 minutes is the largest whole number that fits setTimeout's 2^31-1 milliseconds. */
@@ -381,18 +447,17 @@ async function review(args, out, err) {
     if (value !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/.test(value)) throw new ReviewUsageError(`${flag} "${value}" contains characters a model or effort name does not use`);
   }
   const reviews = reviewsRoot();
-  const fromRoot = relative(realPath(topLevel(root)), realPath(reviews));
-  if (!fromRoot.startsWith("..") && !isAbsolute(fromRoot)) {
+  if (isInside(realPath(topLevel(root)), realPath(reviews))) {
     throw new ReviewUsageError(`the reviews directory ${reviews} is inside the repository being reviewed, which would void every round; set GOOD_AGENT_REVIEWS to a directory outside it`);
   }
   const id = deriveId(root, values.task);
   const promptsDir = values["prompts-dir"] ? resolve(values["prompts-dir"]) : undefined;
-  const taskLabel = taskAbs && !relative(root, taskAbs).startsWith("..") ? relative(root, taskAbs).split("\\").join("/") : (values.task ?? id);
+  const taskLabel = taskAbs && isInside(root, taskAbs) ? relative(root, taskAbs).split("\\").join("/") : (values.task ?? id);
 
   // From here on the reviewer's own CLI is involved.
-  const env = reviewEnvironment(reviewer);
-  const cliVersion = checkVersion(reviewer, env);
   const deadline = Date.now() + timeoutMinutes * 60_000;
+  const env = reviewEnvironment(reviewer);
+  const cliVersion = checkVersion(reviewer, env, deadline);
   const trap = trapSignals();
   /** @type {Awaited<ReturnType<typeof acquireLock>> | null} */
   let lock = null;
@@ -430,6 +495,7 @@ async function review(args, out, err) {
     try {
       digestBefore = treeDigest(root);
       if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
+      if (Date.now() >= deadline) return fail("REVIEW_ERROR", BUDGET_EXHAUSTED);
       const promptText = buildPrompt({ prompt, root, taskLabel, baseSha, author: values.author, verified: values.verified, prior, promptsDir });
       tmp = mkdtempSync(join(tmpdir(), "good-agent-review-"));
       const outFile = join(tmp, "codex-output-attempt1.json");
@@ -437,7 +503,7 @@ async function review(args, out, err) {
       /** @type {string[]} */
       let argv;
       if (reviewer === "codex") {
-        const isolation = codexIsolation(root, env);
+        const isolation = codexIsolation(root, env, deadline);
         argv = ["exec", "-C", root, "--sandbox", "read-only", "-c", 'approval_policy="never"', "-c", "notify=[]", "--ignore-rules", ...isolation,
           ...(model ? ["-m", model] : []), "-c", `model_reasoning_effort="${effort}"`, "--ephemeral", "--color", "never", "--output-schema", SCHEMA_PATH, "-o", outFile, "-"];
       } else {
@@ -450,7 +516,8 @@ async function review(args, out, err) {
           "--allowedTools", ...CLAUDE_ALLOWED, "--disallowedTools", ...CLAUDE_DENIED, "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-chrome", "--disable-slash-commands"];
       }
       if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
-      const result = await runChild(reviewer, argv, { cwd: root, env, input: promptText, timeoutMs: Math.max(1000, deadline - Date.now()), trap, onSpawn: (pgid) => lock?.setChild(pgid) });
+      if (Date.now() >= deadline) return fail("REVIEW_ERROR", BUDGET_EXHAUSTED);
+      const result = await runChild(reviewer, argv, { cwd: root, env, input: promptText, timeoutMs: deadline - Date.now(), trap, onSpawn: (pgid) => lock?.setChild(pgid) });
       digestAfter = treeDigest(root);
       ran = { status: result.status, timedOut: result.timedOut };
       logText = `$ ${reviewer} ${argv.map((a) => (a === "" || /\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}\n\n--- prompt ---\n${promptText}\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}\n`;
