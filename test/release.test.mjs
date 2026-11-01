@@ -201,3 +201,13 @@ test("the alias bin runs end to end from local tarballs (offline)", () => {
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("alias prerelease tag: the alias job derives next or latest from its own version", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { REPO } = await import("./helpers.mjs");
+  const yml = readFileSync(join(REPO, ".github", "workflows", "release.yml"), "utf8");
+  const alias = yml.slice(yml.indexOf("  alias:"));
+  assert.match(alias, /case "\$version" in \*-\*\) tag=next ;; \*\) tag=latest ;; esac/);
+  assert.match(alias, /npm publish --provenance --access public --tag "\$tag"/);
+});

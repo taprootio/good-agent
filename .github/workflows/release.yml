@@ -144,4 +144,6 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           published="$(npm view "@taprootio/good-agent@$version" version 2>/dev/null || true)"
           if [ "$published" = "$version" ]; then echo "alias $version already on npm."; exit 0; fi
-          npm publish --provenance --access public
+          # A prerelease alias version goes to the next dist-tag, like the main package.
+          case "$version" in *-*) tag=next ;; *) tag=latest ;; esac
+          npm publish --provenance --access public --tag "$tag"
