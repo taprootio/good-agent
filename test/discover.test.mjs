@@ -200,12 +200,39 @@ test("claudeImportDepth follows on-demand Claude files and the rule reports them
 test("claudeImportDepth counts path-scoped rules and ignores a shorter route", () => {
   const t = tempTree({
     "CLAUDE.md": "@x.md\n@a.md\n",
-    ".claude/rules/scoped.md": "---\npaths: src/**\n---\n@r1.md\n",
+    ".claude/rules/scoped.md": "---\npaths: src/**\n---\n@../../r1.md\n",
     "r1.md": "@r2.md\n", "r2.md": "@r3.md\n", "r3.md": "@r4.md\n", "r4.md": "@x.md\n",
     "a.md": "@b.md\n", "b.md": "@x.md\n", "x.md": "end\n",
   });
   try {
     assert.deepEqual(claudeImportDepth(discover(t.root, defaultConfig()), defaultConfig()), []);
+  } finally { t.cleanup(); }
+  const chain = {
+    ".claude/rules/scoped.md": "---\npaths: src/**\n---\n@../../r1.md\n",
+    "r1.md": "@r2.md\n", "r2.md": "@r3.md\n", "r3.md": "@r4.md\n", "r4.md": "@x.md\n", "x.md": "end\n",
+  };
+  const bare = tempTree({ "CLAUDE.md": "short\n", ...chain });
+  try {
+    assert.deepEqual(claudeImportDepth(discover(bare.root, defaultConfig()), defaultConfig()), [{ file: "x.md", via: "r4.md", line: 1 }]);
+  } finally { bare.cleanup(); }
+  const routed = tempTree({ "CLAUDE.md": "@x.md\n", ...chain });
+  try {
+    assert.deepEqual(claudeImportDepth(discover(routed.root, defaultConfig()), defaultConfig()), []);
+  } finally { routed.cleanup(); }
+});
+
+test("claudeImportDepth walks each on-demand entry point on its own", () => {
+  const t = tempTree({
+    "AGENTS.md": AG,
+    "one/CLAUDE.md": "@../docs/a.md\n", "two/CLAUDE.md": "@../docs/e.md\n",
+    "docs/a.md": "@b.md\n", "docs/b.md": "@c.md\n", "docs/c.md": "@d.md\n", "docs/d.md": "@e.md\n", "docs/e.md": "end\n",
+  });
+  try {
+    assert.deepEqual(claudeImportDepth(discover(t.root, defaultConfig()), defaultConfig()), [{ file: "docs/e.md", via: "docs/d.md", line: 1 }]);
+    const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
+    const hits = j.findings.filter((/** @type {any} */ f) => f.rule === "claude/import-depth");
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].file, "docs/d.md");
   } finally { t.cleanup(); }
 });
 

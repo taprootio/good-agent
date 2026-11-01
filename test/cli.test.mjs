@@ -192,3 +192,11 @@ test("an unreadable configured canonical file is reported, not accepted", async 
     assert.ok(j.findings.some((/** @type {any} */ f) => f.rule === "canonical/detect"), JSON.stringify(j.findings));
   } finally { chmodSync(join(t.root, "AGENTS.md"), 0o644); t.cleanup(); }
 });
+
+test("copilot/applyto accepts a trailing comment on excludeAgent", () => {
+  const t = tempTree({ "AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", ".github/instructions/x.instructions.md": '---\napplyTo: "**/*.ts"\nexcludeAgent: code-review # explanation\n---\nRule.\n' });
+  try {
+    const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
+    assert.ok(!j.findings.some((/** @type {any} */ f) => f.rule === "copilot/applyto"), JSON.stringify(j.findings));
+  } finally { t.cleanup(); }
+});

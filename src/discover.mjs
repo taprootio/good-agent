@@ -297,22 +297,25 @@ const CLAUDE_ENTRY = /(^|\/)(CLAUDE\.md|CLAUDE\.local\.md)$|(^|\/)\.claude\/(CLA
 
 /**
  * Imports that sit past the four-hop limit when Claude reads any CLAUDE.md,
- * CLAUDE.local.md or rule file (or the AGENTS.md fallback), whether it loads
- * at launch or on demand (subdirectory files, path-scoped rules). One entry per target file.
+ * CLAUDE.local.md or rule file, at launch or on demand (subdirectory files,
+ * path-scoped rules). Each on-demand entry point is walked on its own, on top
+ * of the startup set, because a session under one directory never loads a
+ * sibling's CLAUDE.md. The launch set's own findings come first and win a
+ * duplicate. One entry per target file.
  * @param {Repo} repo
  * @param {import("./config.mjs").Config} config
  * @returns {{ file: string, via: string, line: number }[]}
  */
 export function claudeImportDepth(repo, config = defaultConfig()) {
-  const starts = repo.files.filter((f) => CLAUDE_ENTRY.test(f.path)).map((f) => f.path);
-  // With no CLAUDE.md the launch set falls back to AGENTS.md, so it is an entry point too.
   const launch = claudeLaunchSet(repo, config);
-  if (launch.fallback) starts.push("AGENTS.md");
-  // The multi-start walk can load a file through an on-demand entry point and
-  // hide that it is past four hops from the startup files, so the launch
-  // set's own findings come first and win a duplicate.
+  const startup = new Set(launch.entries.map((e) => e.file));
   const merged = [...launch.tooDeep];
-  for (const d of walkClaudeImports(repo, config, starts).tooDeep) if (!merged.some((m) => m.file === d.file)) merged.push(d);
+  for (const f of repo.files) {
+    if (!CLAUDE_ENTRY.test(f.path) || startup.has(f.path)) continue;
+    for (const d of walkClaudeImports(repo, config, [f.path], launch.entries).tooDeep) {
+      if (!merged.some((m) => m.file === d.file)) merged.push(d);
+    }
+  }
   return merged;
 }
 
@@ -321,33 +324,42 @@ export function claudeImportDepth(repo, config = defaultConfig()) {
  * once. Breadth-first, so a file reached by two paths is expanded at its
  * shallowest depth and the four-hop limit is applied to that depth; a target
  * first reached at hop five that no shorter path reaches is too deep.
+ * `preloaded` entries join the walk at their own depths (the startup set seen
+ * from an on-demand entry point).
  * @param {Repo} repo
  * @param {import("./config.mjs").Config} config
  * @param {string[]} starts
+ * @param {LaunchEntry[]} [preloaded]
  * @returns {{ entries: LaunchEntry[], tooDeep: { file: string, via: string, line: number }[] }}
  */
-function walkClaudeImports(repo, config, starts) {
+function walkClaudeImports(repo, config, starts, preloaded = []) {
   const MAX_DEPTH = 4;
   /** @type {LaunchEntry[]} */
   const entries = [];
   /** @type {Set<string>} */
   const loaded = new Set();
-  /** @type {{ path: string, via: string | null, depth: number, line: number }[]} */
-  const queue = starts.map((path) => ({ path, via: null, depth: 0, line: 0 }));
+  /** @typedef {{ path: string, via: string | null, depth: number, line: number }} Pending */
+  /** @type {Pending[][]} */
+  const levels = [];
+  /** @param {Pending} item */
+  const enqueue = (item) => { (levels[item.depth] ??= []).push(item); };
+  for (const path of starts) enqueue({ path, via: null, depth: 0, line: 0 });
+  for (const e of preloaded) enqueue({ path: e.file, via: e.via, depth: e.depth, line: 0 });
   /** @type {{ file: string, via: string, line: number }[]} */
   const deep = [];
-  for (let head = 0; head < queue.length; head += 1) {
-    const next = queue[head];
-    if (loaded.has(next.path)) continue;
-    if (next.depth > MAX_DEPTH) { deep.push({ file: next.path, via: /** @type {string} */ (next.via), line: next.line }); continue; }
-    const file = repo.byPath.get(next.path) ?? readOutside(repo, next.path);
-    if (!file) continue;
-    loaded.add(next.path);
-    entries.push({ file: next.path, lines: file.lines, via: next.via, depth: next.depth });
-    for (const imp of claudeImports(file.text)) {
-      const resolved = resolveReference(next.path, imp.target, "import");
-      if (resolved === null || loaded.has(resolved) || isIgnoredTarget(resolved, config)) continue;
-      queue.push({ path: resolved, via: next.path, depth: next.depth + 1, line: imp.line });
+  for (let d = 0; d < levels.length; d += 1) {
+    for (const next of levels[d] ?? []) {
+      if (loaded.has(next.path)) continue;
+      if (next.depth > MAX_DEPTH) { deep.push({ file: next.path, via: /** @type {string} */ (next.via), line: next.line }); continue; }
+      const file = repo.byPath.get(next.path) ?? readOutside(repo, next.path);
+      if (!file) continue;
+      loaded.add(next.path);
+      entries.push({ file: next.path, lines: file.lines, via: next.via, depth: next.depth });
+      for (const imp of claudeImports(file.text)) {
+        const resolved = resolveReference(next.path, imp.target, "import");
+        if (resolved === null || loaded.has(resolved) || isIgnoredTarget(resolved, config)) continue;
+        enqueue({ path: resolved, via: next.path, depth: next.depth + 1, line: imp.line });
+      }
     }
   }
   // A target that was loaded by a shorter path is not too deep after all.

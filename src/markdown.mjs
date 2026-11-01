@@ -201,7 +201,8 @@ export function parseFrontMatter(src) {
     const indent = raw.length - raw.trimStart().length;
     const top = raw.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
     if (indent === 0 && top) {
-      const [, key, value] = top;
+      const key = top[1];
+      const value = stripComment(top[2]);
       if (key === "__proto__" || key === "constructor" || key === "prototype") { errors.push(`line ${i + 1}: "${key}" is not an allowed key`); continue; }
       finish();
       if (value === "") { data[key] = Object.create(null); nestedKey = key; nestedIndent = 0; }
@@ -213,15 +214,17 @@ export function parseFrontMatter(src) {
       const target = data[nestedKey];
       if (nested && typeof target === "object") {
         if (nestedIndent === 0) nestedIndent = indent;
-        if (indent !== nestedIndent || nested[2] === "") { errors.push(`line ${i + 1}: nesting deeper than one level under "${nestedKey}" is not supported`); continue; }
+        if (indent !== nestedIndent || stripComment(nested[2]) === "") { errors.push(`line ${i + 1}: nesting deeper than one level under "${nestedKey}" is not supported`); continue; }
         if (nested[1] === "__proto__" || nested[1] === "constructor" || nested[1] === "prototype") { errors.push(`line ${i + 1}: "${nested[1]}" is not an allowed key`); continue; }
-        if (isUnterminated(nested[2])) { errors.push(`line ${i + 1}: unterminated quoted value for "${nested[1]}"`); continue; }
-        target[nested[1]] = unquote(nested[2]);
+        const nestedValue = stripComment(nested[2]);
+        if (isUnterminated(nestedValue)) { errors.push(`line ${i + 1}: unterminated quoted value for "${nested[1]}"`); continue; }
+        target[nested[1]] = unquote(nestedValue);
         continue;
       }
     }
     if (indent > 0 && pending) {
-      pending.value = `${pending.value} ${raw.trim()}`.trim();
+      const part = /^["']/.test(pending.value) ? raw.trim() : stripComment(raw.trim());
+      if (part !== "") pending.value = `${pending.value} ${part}`.trim();
       continue;
     }
     errors.push(`line ${i + 1}: cannot parse "${raw.trim()}"`);
@@ -232,6 +235,18 @@ export function parseFrontMatter(src) {
   let bodyStart = 0;
   for (let i = 0; i <= end; i += 1) bodyStart += lines[i].length + 1;
   return { data, bodyStart: Math.min(bodyStart, src.length), errors };
+}
+
+/**
+ * Drop a trailing YAML comment from an unquoted scalar: a `#` at the start
+ * or after a space or tab. A quoted value is left for `unquote`, and a `#`
+ * inside a word (`a#b`) stays.
+ * @param {string} value
+ */
+function stripComment(value) {
+  const v = value.trim();
+  if (v[0] === '"' || v[0] === "'") return v;
+  return v.replace(/(^|[ \t]+)#.*$/, "").trim();
 }
 
 /**

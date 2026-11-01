@@ -211,3 +211,13 @@ test("a fence opened after a list marker ends with the item or its closing fence
   assert.deepEqual(markdownLinks("1. ```js\n   [a](in.md)\n   ```\n2. [b](two.md)\n").map((l) => l.target), ["two.md"]);
   assert.deepEqual(markdownLinks("- ~~~\n  [x](in.md)\n\n  more\n[y](out.md)\n").map((l) => l.target), ["out.md"]);
 });
+
+test("front matter: a trailing comment on an unquoted value is dropped; a hash inside a word stays", () => {
+  const fm = parseFrontMatter('---\napplyTo: "**/*.ts"\nexcludeAgent: code-review # explanation\nname: a#b\ndescription: first # c\n  second\nmetadata:\n  owner: je\t# me\n---\n');
+  assert.ok(fm);
+  assert.equal(fm.errors.length, 0, fm.errors.join("; "));
+  assert.equal(fm.data.excludeAgent, "code-review");
+  assert.equal(fm.data.name, "a#b");
+  assert.equal(fm.data.description, "first second");
+  assert.equal(/** @type {any} */ (fm.data.metadata).owner, "je");
+});
