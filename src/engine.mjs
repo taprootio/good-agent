@@ -42,7 +42,7 @@ export const VERSION = /** @type {{ version: string }} */ (JSON.parse(readFileSy
  */
 export function analyze(root, config) {
   const repo = discover(root, config);
-  return { repo, config, canonical: detectCanonical(repo, config), chains: codexChains(repo), launch: claudeLaunchSet(repo) };
+  return { repo, config, canonical: detectCanonical(repo, config), chains: codexChains(repo), launch: claudeLaunchSet(repo, config) };
 }
 
 /**
@@ -118,7 +118,18 @@ export function pathsNeedCheck(analysis, paths, configPath) {
 }
 
 /**
+ * The names Copilot reads (its docs): AGENTS.md anywhere, a root CLAUDE.md
+ * or GEMINI.md, and the two .github locations.
+ * @param {string} path
+ */
+export function copilotReads(path) {
+  return /(^|\/)AGENTS\.md$/.test(path) || path === "CLAUDE.md" || path === "GEMINI.md" || path === ".github/copilot-instructions.md" || /^\.github\/instructions\/.+\.instructions\.md$/.test(path);
+}
+
+/**
  * The `files` array shared by `check --json` and `inspect --json`.
+ * `readBy` lists what loads at launch; `claude:on-demand` marks the
+ * files Claude Code loads later (path-scoped rules, nested CLAUDE.md).
  * @param {Analysis} analysis
  */
 export function fileReport(analysis) {
@@ -134,7 +145,8 @@ export function fileReport(analysis) {
     if (codexReads.has(path)) tools.push("codex");
     const entry = launch.entries.find((e) => e.file === path);
     if (entry) tools.push(entry.via ? "claude:import" : launch.fallback && path === "AGENTS.md" ? "claude:fallback" : "claude");
-    if (/(^|\/)AGENTS\.md$/.test(path) || path === "CLAUDE.md" || path === ".github/copilot-instructions.md" || /^\.github\/instructions\/.+\.instructions\.md$/.test(path)) tools.push("copilot");
+    else if (/(^|\/)(CLAUDE\.md|CLAUDE\.local\.md)$/.test(path) || /\.claude\/(CLAUDE\.md|rules\/)/.test(path)) tools.push("claude:on-demand");
+    if (copilotReads(path)) tools.push("copilot");
     return tools;
   };
   return repo.files.map((f) => ({ path: f.path, bytes: f.bytes, lines: f.lines, readBy: readBy(f.path) }));

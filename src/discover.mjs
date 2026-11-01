@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync, existsSync, statSync, lstatSync, realpathSync } from "node:fs";
 import { join, dirname, resolve, relative, sep, posix } from "node:path";
 import { claudeImports, markdownLinks, parseFrontMatter, countLines } from "./markdown.mjs";
-import { globToRegExp } from "./config.mjs";
+import { globToRegExp, defaultConfig } from "./config.mjs";
 
 /** Directories never walked: installed or generated content. */
 export const IGNORED_DIRS = new Set(["node_modules", ".git", "coverage", "dist", "build", "public", ".next", "out"]);
@@ -118,6 +118,9 @@ function readInstructionFile(abs, rel) {
  * @returns {string | null}
  */
 export function resolveReference(fromPath, target, kind) {
+  // A Windows-style relative reference (.\AGENTS.md) resolves like its POSIX
+  // form; a backslash before a space is the escaped-space syntax and stays.
+  target = target.replace(/\\(?! )/g, "/");
   if (target.startsWith("~")) return null;
   // Windows drive (C:/, C:\) and UNC (//server, \\server) paths are absolute too.
   if (/^[A-Za-z]:[\\/]/.test(target) || target.startsWith("\\\\") || target.startsWith("//")) return null;
@@ -183,7 +186,9 @@ export function detectCanonical(repo, config) {
     }
   }
   if (config.canonical) {
-    return { canonical: config.canonical, inbound, reason: existsInRepo(repo, config.canonical) ? "configured" : "configured but missing" };
+    let isFile = false;
+    try { isFile = statSync(join(repo.root, ...config.canonical.split("/"))).isFile(); } catch { isFile = false; }
+    return { canonical: config.canonical, inbound, reason: isFile ? "configured" : "configured but missing" };
   }
   const ranked = repo.files.slice().sort((a, b) => (inbound.get(b.path) ?? 0) - (inbound.get(a.path) ?? 0) || (a.path === "AGENTS.md" ? -1 : b.path === "AGENTS.md" ? 1 : 0));
   if (ranked.length > 0 && (inbound.get(ranked[0].path) ?? 0) > 0) return { canonical: ranked[0].path, inbound, reason: `${inbound.get(ranked[0].path)} inbound reference(s)` };
@@ -257,7 +262,7 @@ export function codexChains(repo) {
  * @param {Repo} repo
  * @returns {{ entries: LaunchEntry[], lines: number, fallback: boolean, tooDeep: { file: string, via: string, line: number }[] }}
  */
-export function claudeLaunchSet(repo) {
+export function claudeLaunchSet(repo, config = defaultConfig()) {
   const MAX_DEPTH = 4;
   /** @type {LaunchEntry[]} */
   const entries = [];
@@ -282,7 +287,7 @@ export function claudeLaunchSet(repo) {
       entries.push({ file: next.path, lines: file.lines, via: next.via, depth: next.depth });
       for (const imp of claudeImports(file.text)) {
         const resolved = resolveReference(next.path, imp.target, "import");
-        if (resolved === null || loaded.has(resolved)) continue;
+        if (resolved === null || loaded.has(resolved) || isIgnoredTarget(resolved, config)) continue;
         queue.push({ path: resolved, via: next.path, depth: next.depth + 1, line: imp.line });
       }
     }

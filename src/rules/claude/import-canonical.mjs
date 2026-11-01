@@ -63,9 +63,11 @@ export default {
             : `does not reference ${canonical} at all`;
       out.push({
         file: cf.path,
-        line: 1,
-        message: `${cf.path} ${how}. Claude Code imports a file only through @path syntax.`,
-        fix: `Replace the pointer with a line containing ${importText(cf.path, canonical)}; keep Claude-only notes below it.`,
+        line: wrongImport ? wrongImport.line : 1,
+        message: wrongImport ? `${cf.path} ${how}.` : `${cf.path} ${how}. Claude Code imports a file only through @path syntax.`,
+        fix: wrongImport
+          ? `Change the import to ${importText(cf.path, canonical)}; imports resolve relative to the importing file.`
+          : `Replace the pointer with a line containing ${importText(cf.path, canonical)}; keep Claude-only notes below it.`,
       });
     }
     return out;

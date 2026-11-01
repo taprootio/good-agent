@@ -1,4 +1,6 @@
 // @ts-check
+import { copilotReads } from "../../engine.mjs";
+
 /** @type {import("../types.mjs").Rule} */
 export default {
   id: "canonical/name",
@@ -14,13 +16,13 @@ export default {
   run(ctx) {
     const { canonical } = ctx.canonical;
     if (canonical === null || canonical === "AGENTS.md" || canonical.endsWith("/AGENTS.md")) return [];
-    // Copilot reads a root CLAUDE.md or GEMINI.md too; Codex reads AGENTS.md only.
-    const copilotReads = canonical === "CLAUDE.md" || canonical === "GEMINI.md";
-    const who = copilotReads ? "Codex does" : "Codex and Copilot do";
+    // Copilot reads its own names (root CLAUDE.md, GEMINI.md, the .github files); Codex reads AGENTS.md only.
+    const copilot = copilotReads(canonical);
+    const who = copilot ? "Codex does" : "Codex and Copilot do";
     return [{
       file: canonical,
-      message: `The canonical file is ${canonical}. ${who} not read that name natively, so ${copilotReads ? "it sees" : "they see"} only the written pointers to it.`,
-      data: { inbound: ctx.canonical.inbound.get(canonical) ?? 0, unreadBy: copilotReads ? ["codex"] : ["codex", "copilot"] },
+      message: `The canonical file is ${canonical}. ${who} not read that name natively, so ${copilot ? "it sees" : "they see"} only the written pointers to it.`,
+      data: { inbound: ctx.canonical.inbound.get(canonical) ?? 0, unreadBy: copilot ? ["codex"] : ["codex", "copilot"] },
     }];
   },
 };

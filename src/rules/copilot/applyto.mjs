@@ -18,6 +18,7 @@ export default {
       if (!/^\.github\/instructions\/.+\.instructions\.md$/.test(f.path)) continue;
       const fm = parseFrontMatter(f.text);
       if (!fm) { out.push({ file: f.path, line: 1, message: "No front matter; Copilot never attaches this file to any request because it has no applyTo." }); continue; }
+      if (fm.errors.length > 0) { out.push({ file: f.path, line: 1, message: `Front matter does not parse (${fm.errors[0]}); Copilot may ignore the file or its applyTo.`, fix: "Keep the front matter to key: value lines (applyTo, excludeAgent) between the two --- lines." }); continue; }
       const applyTo = fm.data.applyTo;
       if (typeof applyTo !== "string" || applyTo.trim() === "") { out.push({ file: f.path, line: 1, message: "Front matter has no applyTo; Copilot never attaches this file to any request." }); continue; }
       const ex = fm.data.excludeAgent;

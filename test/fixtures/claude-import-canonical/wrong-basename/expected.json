@@ -1,0 +1,17 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "claude/import-canonical",
+      "severity": "error",
+      "file": ".claude/CLAUDE.md",
+      "line": 1
+    },
+    {
+      "rule": "links/broken",
+      "severity": "error",
+      "file": ".claude/CLAUDE.md",
+      "line": 1
+    }
+  ]
+}

@@ -30,11 +30,39 @@ export function stripCode(src) {
       lines[i] = " ".repeat(line.length);
     }
   }
-  // Inline code spans may span lines but not paragraphs: a run of N
-  // backticks (not escaped) closes with the same run inside one paragraph.
-  // Blank them, keeping newlines.
-  return lines.join("\n").split(/(\n[ \t]*\n)/).map((chunk, i) => (i % 2 === 1 ? chunk
-    : chunk.replace(/(?<![`\\])(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)/g, (m) => m.replace(/[^\n]/g, " ")))).join("");
+  // Inline code spans may span lines but not blocks: a run of N backticks
+  // (not escaped, by backslash parity) closes with the same run inside one
+  // paragraph. Blank lines (CRLF too) and ATX headings end a block.
+  return lines.join("\n").split(/(\r?\n[ \t]*\r?\n|\r?\n(?=#{1,6} ))/).map((chunk, i) => (i % 2 === 1 ? chunk : blankSpans(chunk))).join("");
+}
+
+/**
+ * Blank code spans inside one block, keeping newlines.
+ * @param {string} block
+ */
+function blankSpans(block) {
+  let out = "";
+  let i = 0;
+  while (i < block.length) {
+    if (block[i] === "`" && !isEscaped(block, i) && (i === 0 || block[i - 1] !== "`")) {
+      let n = 0;
+      while (block[i + n] === "`") n += 1;
+      const run = "`".repeat(n);
+      let j = i + n;
+      let close = -1;
+      while (j < block.length) {
+        const k = block.indexOf(run, j);
+        if (k < 0) break;
+        if (block[k + n] !== "`" && block[k - 1] !== "`") { close = k; break; }
+        j = k + 1;
+        while (block[j] === "`") j += 1;
+      }
+      if (close >= 0) { out += block.slice(i, close + n).replace(/[^\n]/g, " "); i = close + n; continue; }
+      out += run; i += n; continue;
+    }
+    out += block[i]; i += 1;
+  }
+  return out;
 }
 
 /**
@@ -165,8 +193,9 @@ export function markdownLinks(src) {
       }
       raw = clean.slice(start, i).replace(/\\([()\s])/g, "$1");
     }
-    // optional title (quoted or parenthesized), then the closing parenthesis
-    const rest = clean.slice(i).match(/^\s*(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))?\s*\)/);
+    // optional title (quoted or parenthesized; it may wrap onto the next
+    // line but not across a blank line), then the closing parenthesis
+    const rest = clean.slice(i).match(/^\s*(?:"(?:[^"\\]|\\.|\n(?![ \t]*\n))*"|'(?:[^'\\]|\\.|\n(?![ \t]*\n))*'|\((?:[^()\\]|\\.|\n(?![ \t]*\n))*\))?\s*\)/);
     from = at + 2;
     if (!rest || raw === "") continue;
     if (/^(https?:|mailto:|#)/i.test(raw)) continue;

@@ -129,3 +129,38 @@ test("--cwd must be a directory; explain rejects extra flags; readBy is modeled;
   const defaults = Object.fromEntries(RULES.map((r) => [r.id, r.severity]));
   assert.deepEqual(defaults, { "canonical/detect": "error", "canonical/name": "warn", "codex/size-budget": "error", "claude/import-canonical": "error", "claude/import-depth": "warn", "claude/size": "warn", "links/broken": "error", "copilot/applyto": "error", "dry/copied-canonical": "error" });
 });
+
+test("messages: wrong-basename import, Copilot-readable canonical name, multi-line fix text, on-demand readBy", () => {
+  const w = JSON.parse(run(["check", "--json", "--cwd", join(FIXTURES, "claude-import-canonical", "wrong-basename")]).stdout);
+  const f = w.findings.find((/** @type {any} */ x) => x.rule === "claude/import-canonical");
+  assert.match(f.message, /resolves to \.claude\/AGENTS\.md/);
+  assert.match(f.fix, /@\.\.\/AGENTS\.md/);
+  const c = JSON.parse(run(["check", "--json", "--cwd", join(FIXTURES, "canonical-detect", "copilot-only")]).stdout);
+  const n = c.findings.find((/** @type {any} */ x) => x.rule === "canonical/name");
+  assert.deepEqual(n.data.unreadBy, ["codex"]);
+  assert.match(n.message, /Codex does not read/);
+  const human = run(["check", "--cwd", join(FIXTURES, "copilot-applyto", "fail-missing")]).stdout;
+  assert.match(human, /\n  fix: Start the file with a front matter block:\n  ---\n  applyTo: "\*\*\/\*\.ts"\n  ---\n/);
+  const t = tempTree({ "AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", ".claude/rules/scoped.md": "---\npaths:\n  - src/**\n---\nx\n", "sub/CLAUDE.md": "nested\n" });
+  try {
+    const j = JSON.parse(run(["inspect", "--json", "--cwd", t.root]).stdout);
+    assert.deepEqual(j.files.find((/** @type {any} */ x) => x.path === ".claude/rules/scoped.md").readBy, ["claude:on-demand"]);
+    assert.deepEqual(j.files.find((/** @type {any} */ x) => x.path === "sub/CLAUDE.md").readBy, ["claude:on-demand"]);
+  } finally { t.cleanup(); }
+});
+
+test("config: a directory is not a canonical file; an absolute canonical path is rejected; ignored imports are not loaded", () => {
+  const dir = tempTree({ "src/x.js": "x\n", "CLAUDE.md": "@./src\n", "good-agent.config.json": '{"canonical":"src"}\n' });
+  try {
+    const j = JSON.parse(run(["check", "--json", "--cwd", dir.root]).stdout);
+    assert.ok(j.findings.some((/** @type {any} */ f) => f.rule === "canonical/detect"));
+  } finally { dir.cleanup(); }
+  const abs = tempTree({ "AGENTS.md": "# a\n", "good-agent.config.json": '{"canonical":"/AGENTS.md"}\n' });
+  try { assert.equal(run(["check", "--cwd", abs.root]).status, 2); } finally { abs.cleanup(); }
+  const long = "# g\n\n" + "- line\n".repeat(205);
+  const ign = tempTree({ "AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n@vendor/guide.md\n", "vendor/guide.md": long, "good-agent.config.json": '{"ignore":["vendor/**"]}\n' });
+  try {
+    const j = JSON.parse(run(["check", "--json", "--cwd", ign.root]).stdout);
+    assert.ok(!j.findings.some((/** @type {any} */ f) => f.rule === "claude/size"), JSON.stringify(j.findings));
+  } finally { ign.cleanup(); }
+});
