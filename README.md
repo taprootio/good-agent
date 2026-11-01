@@ -111,7 +111,7 @@ And in CI:
 | `codex/size-budget` | error | Every root-to-directory chain of `AGENTS.md` files fits Codex's 32 KiB combined budget. Reports where the cut lands. |
 | `claude/import-canonical` | error | `CLAUDE.md` imports the canonical file with `@path`, not a link or a sentence. |
 | `claude/import-depth` | warn | No import chain deeper than Claude's four hops. |
-| `claude/size` | warn | Every file Claude loads at launch (CLAUDE.md, its imports, rules) is under 200 lines. |
+| `claude/size` | warn | Every file Claude loads at launch (CLAUDE.md or .claude/CLAUDE.md, imports, rules, or AGENTS.md as the fallback) is under 200 lines; one info line if only the total is over. |
 | `links/broken` | error | Relative links and `@` imports resolve. |
 | `copilot/applyto` | error | Path-specific instruction files have valid `applyTo` front matter. |
 | `dry/copied-canonical` | error | No tool file is a copy of the canonical file. |
@@ -148,9 +148,10 @@ good-agent init --skill
 
 Exit codes: 0 pass, 1 findings, 2 usage or config error.
 
-With paths, `check` runs only when one of them is an instruction file or a
-file an instruction file links to, so a pre-commit hook or a
-changed-paths verifier can pass it everything and let it decide:
+With paths, `check` runs only when one of them is an instruction file, a
+file an instruction file links to, or the config file, so a pre-commit
+hook or a changed-paths verifier can pass it everything and let it decide.
+`npx --no-install` needs `good-agent` in the repo's devDependencies:
 
 ```sh
 git diff --cached --name-only -z | xargs -0 -r npx --no-install good-agent check

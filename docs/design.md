@@ -231,8 +231,11 @@ Checked against `registry.npmjs.org` on 2026-11-01.
 The canonical file is the instruction file that the other instruction files
 point at. Concretely: collect every instruction file (section 4.1), count
 inbound references from the other instruction files (Markdown links and
-`@` imports, resolved relative to the referencing file, with a leading `/`
-treated as repo-root), and pick the file with the most inbound references.
+`@` imports, resolved relative to the referencing file; a Markdown link with
+a leading `/` is treated as repo-root, while an `@` import with a leading
+`/` is an absolute filesystem path for Claude and is skipped here, as
+`links/broken` skips it), and pick the file with the most inbound
+references.
 Ties go to `AGENTS.md`. If no file references another and there is exactly one
 root-level candidate, that is canonical. If `AGENTS.md` exists and nothing
 else resolves, it wins. Otherwise `canonical/detect` fails and asks for the
@@ -320,8 +323,9 @@ without config.
 ```
 good-agent check [options] [path...]
     Run the rules. With paths, run only when at least one path is an
-    instruction file or a link target of one (for verify-changed style
-    scripts); otherwise exit 0 immediately with "nothing to check".
+    instruction file, a link target of one, or the config file in effect
+    (default or --config) (for verify-changed style scripts); otherwise
+    exit 0 immediately with "nothing to check".
 
 good-agent inspect [--json]
     What each tool loads: the detected canonical file, every instruction
@@ -638,7 +642,12 @@ trees.
   chain case and an override case; `claude/import-canonical` gets the
   Markdown-link case, the code-span case (`` `@AGENTS.md` `` must not count)
   and the no-CLAUDE.md cases; `dry/copied-canonical` gets a wholesale copy
-  and checks that no `dry/duplicate-block` finding accompanies it.
+  and checks that no `dry/duplicate-block` finding accompanies it;
+  `claude/size` gets an `AGENTS.md`-only launch set, a `.claude/CLAUDE.md`-only
+  launch set, and two files under the target whose total is over it (the
+  info case); canonical detection gets a `@/absolute` import that must not
+  count; the path filter gets a config-only change; the hook fixture gets an
+  empty commit and a staged path with a space.
 - `test/cli.test.mjs` runs the bin as a child process for exit codes 0, 1
   and 2, `--json` shape, `--strict`, `--rule`, and the path-filtered
   "nothing to check" fast exit.
@@ -793,12 +802,14 @@ repo can link to.
    notes, risks, dependencies, effort); run it through the review loop with
    the story prompt (internal until clean, then external until clean);
    finalize into the backlog.
-2. **`work-task`**: read and verify the task; plan with checkpoints; review
-   the plan internally then externally; branch; hand bounded slices to the
-   least-cost runtime that meets the quality floor (Taproot's "select a
-   runtime deliberately" and "review cost ceiling" sections, generalized);
-   implement; review the work internally until clean, then externally until
-   clean; close out; hand off without pushing.
+2. **`work-task`**: read and verify the task; propose refinements; branch
+   (no edit before this, so the clean-tree rule Trellis and Taproot share
+   holds); write the refinements and a plan with checkpoints into the task
+   file on the branch; review the plan internally then externally; hand
+   bounded slices to the least-cost runtime that meets the quality floor
+   (Taproot's "select a runtime deliberately" and "review cost ceiling"
+   sections, generalized); implement; review the work internally until
+   clean, then externally until clean; close out; hand off without pushing.
 3. **`review-loop`**: a skill of its own, invoked by the other two and on
    its own when someone asks for a review: fresh
    context, read-only, factual prompt, severity semantics, confirm-then-fix,
@@ -855,8 +866,8 @@ repo can link to.
    The reviews directory is keyed by the repository, not the worktree:
    `<repo-slug>` is the basename of the git common directory's parent plus a
    short hash of its absolute path, so every worktree of one clone shares a
-   history. The per-reviewer lock lives at the reviews root, so one login
-   never runs two reviews at once across repositories. Review exit codes:
+   history. The per-reviewer lock lives at the reviews root, so two reviews
+   by the same reviewer never run at once, even across repositories. Review exit codes:
    0 clean, 1 findings, 2 usage or config, 3 unsafe or reviewer failure.
 
 ### The watcher question
