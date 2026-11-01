@@ -24,7 +24,7 @@ export default {
       }];
     }
     if (reason === "configured but missing") {
-      return [{ file: canonical, message: `The configured canonical file ${canonical} does not exist.`, fix: "Create it, or fix \"canonical\" in good-agent.config.json." }];
+      return [{ file: canonical, message: `The configured canonical file ${canonical} does not exist or cannot be read as a regular file.`, fix: "Create it, make it readable, or fix \"canonical\" in good-agent.config.json." }];
     }
     return [];
   },

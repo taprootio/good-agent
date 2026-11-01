@@ -186,9 +186,9 @@ export function detectCanonical(repo, config) {
     }
   }
   if (config.canonical) {
-    let isFile = false;
-    try { isFile = statSync(join(repo.root, ...config.canonical.split("/"))).isFile(); } catch { isFile = false; }
-    return { canonical: config.canonical, inbound, reason: isFile ? "configured" : "configured but missing" };
+    let readable = false;
+    try { const abs = join(repo.root, ...config.canonical.split("/")); readable = statSync(abs).isFile() && readFileSync(abs).length >= 0; } catch { readable = false; }
+    return { canonical: config.canonical, inbound, reason: readable ? "configured" : "configured but missing" };
   }
   const ranked = repo.files.slice().sort((a, b) => (inbound.get(b.path) ?? 0) - (inbound.get(a.path) ?? 0) || (a.path === "AGENTS.md" ? -1 : b.path === "AGENTS.md" ? 1 : 0));
   if (ranked.length > 0 && (inbound.get(ranked[0].path) ?? 0) > 0) return { canonical: ranked[0].path, inbound, reason: `${inbound.get(ranked[0].path)} inbound reference(s)` };

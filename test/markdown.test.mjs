@@ -16,7 +16,7 @@ test("front matter: flat keys, continuation lines, one nested map", () => {
   assert.ok(fm);
   assert.equal(fm.data.name, "x");
   assert.equal(fm.data.description, "first line second line");
-  assert.deepEqual(fm.data.metadata, { package: "good-agent", owner: "je" });
+  assert.deepEqual({ ...fm.data.metadata }, { package: "good-agent", owner: "je" });
   assert.equal(fm.errors.length, 0);
 });
 
@@ -86,4 +86,16 @@ test("spans stop at CRLF paragraph breaks and headings; a doubled backslash does
   assert.deepEqual(markdownLinks("`a\n# Heading [y](h.md)\nb`\n").map((l) => l.target), ["h.md"]);
   assert.deepEqual(claudeImports("\\\\`@AGENTS.md` text\n"), []);
   assert.deepEqual(markdownLinks("[a](docs/a.md \"a title that\nwraps\")\n").map((l) => l.target), ["docs/a.md"]);
+});
+
+test("a heading is its own block; list items start blocks; deeper nesting and __proto__ keys are rejected; unterminated titles are bounded", () => {
+  assert.deepEqual(markdownLinks("# `heading\n[x](missing.md)`\n").map((l) => l.target), ["missing.md"]);
+  assert.deepEqual(markdownLinks("- `a\n- [y](item.md)`\n").map((l) => l.target), ["item.md"]);
+  const deep = parseFrontMatter('---\napplyTo: "**"\nmetadata:\n  x: y\n    z: q\n---\n');
+  assert.ok(deep && deep.errors.length > 0);
+  const proto = parseFrontMatter('---\n__proto__:\n  applyTo: "**"\n---\n');
+  assert.ok(proto && proto.errors.length > 0 && !Object.hasOwn(proto.data, "applyTo") && proto.data.applyTo === undefined);
+  const started = Date.now();
+  markdownLinks(`[x](missing.md "${"a\n".repeat(400)}`);
+  assert.ok(Date.now() - started < 1000, "title scan must be linear");
 });

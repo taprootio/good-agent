@@ -164,3 +164,14 @@ test("config: a directory is not a canonical file; an absolute canonical path is
     assert.ok(!j.findings.some((/** @type {any} */ f) => f.rule === "claude/size"), JSON.stringify(j.findings));
   } finally { ign.cleanup(); }
 });
+
+test("an unreadable configured canonical file is reported, not accepted", async () => {
+  if (process.getuid && process.getuid() === 0) return; // root can read anything
+  const { chmodSync } = await import("node:fs");
+  const t = tempTree({ "AGENTS.md": "# a\n", "CLAUDE.md": "@AGENTS.md\n", "good-agent.config.json": '{"canonical":"AGENTS.md"}\n' });
+  try {
+    chmodSync(join(t.root, "AGENTS.md"), 0o000);
+    const j = JSON.parse(run(["check", "--json", "--cwd", t.root]).stdout);
+    assert.ok(j.findings.some((/** @type {any} */ f) => f.rule === "canonical/detect"), JSON.stringify(j.findings));
+  } finally { chmodSync(join(t.root, "AGENTS.md"), 0o644); t.cleanup(); }
+});

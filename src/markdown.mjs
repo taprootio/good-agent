@@ -32,8 +32,25 @@ export function stripCode(src) {
   }
   // Inline code spans may span lines but not blocks: a run of N backticks
   // (not escaped, by backslash parity) closes with the same run inside one
-  // paragraph. Blank lines (CRLF too) and ATX headings end a block.
-  return lines.join("\n").split(/(\r?\n[ \t]*\r?\n|\r?\n(?=#{1,6} ))/).map((chunk, i) => (i % 2 === 1 ? chunk : blankSpans(chunk))).join("");
+  // block. A blank line ends a block; an ATX heading and a list item each
+  // start one, and a heading is a block of its own.
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string[]} */
+  let block = [];
+  const flush = () => { if (block.length) { out.push(blankSpans(block.join("\n"))); block = []; } };
+  for (const line of lines) {
+    const bare = line.replace(/\r$/, "");
+    const blank = bare.trim() === "";
+    const heading = /^\s{0,3}#{1,6}(\s|$)/.test(bare);
+    const item = /^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s/.test(bare);
+    if (blank) { flush(); out.push(line); continue; }
+    if (heading) { flush(); out.push(blankSpans(line)); continue; }
+    if (item) flush();
+    block.push(line);
+  }
+  flush();
+  return out.join("\n");
 }
 
 /**
@@ -108,13 +125,14 @@ export function parseFrontMatter(src) {
   }
   if (end < 0) return { data: {}, bodyStart: src.length, errors: ["front matter is not closed with ---"] };
   /** @type {FrontMatter} */
-  const data = {};
+  const data = Object.create(null);
   /** @type {string[]} */
   const errors = [];
   /** @type {string | null} */
   let lastKey = null;
   /** @type {string | null} */
   let nestedKey = null;
+  let nestedIndent = 0;
   for (let i = 1; i < end; i += 1) {
     const raw = lines[i].replace(/\r$/, "");
     if (raw.trim() === "" || raw.trim().startsWith("#")) continue;
@@ -122,7 +140,8 @@ export function parseFrontMatter(src) {
     const top = raw.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
     if (indent === 0 && top) {
       const [, key, value] = top;
-      if (value === "") { data[key] = {}; nestedKey = key; lastKey = null; }
+      if (key === "__proto__" || key === "constructor" || key === "prototype") { errors.push(`line ${i + 1}: "${key}" is not an allowed key`); continue; }
+      if (value === "") { data[key] = Object.create(null); nestedKey = key; nestedIndent = 0; lastKey = null; }
       else { data[key] = unquote(value); lastKey = key; nestedKey = null; }
       continue;
     }
@@ -130,8 +149,10 @@ export function parseFrontMatter(src) {
       const nested = raw.trim().match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
       const target = data[nestedKey];
       if (nested && typeof target === "object") {
-        if (nested[2] === "") errors.push(`line ${i + 1}: nesting deeper than one level under "${nestedKey}" is not supported`);
-        else target[nested[1]] = unquote(nested[2]);
+        if (nestedIndent === 0) nestedIndent = indent;
+        if (indent !== nestedIndent || nested[2] === "") { errors.push(`line ${i + 1}: nesting deeper than one level under "${nestedKey}" is not supported`); continue; }
+        if (nested[1] === "__proto__" || nested[1] === "constructor" || nested[1] === "prototype") { errors.push(`line ${i + 1}: "${nested[1]}" is not an allowed key`); continue; }
+        target[nested[1]] = unquote(nested[2]);
         continue;
       }
     }
@@ -195,7 +216,7 @@ export function markdownLinks(src) {
     }
     // optional title (quoted or parenthesized; it may wrap onto the next
     // line but not across a blank line), then the closing parenthesis
-    const rest = clean.slice(i).match(/^\s*(?:"(?:[^"\\]|\\.|\n(?![ \t]*\n))*"|'(?:[^'\\]|\\.|\n(?![ \t]*\n))*'|\((?:[^()\\]|\\.|\n(?![ \t]*\n))*\))?\s*\)/);
+    const rest = scanTitleAndClose(clean, i);
     from = at + 2;
     if (!rest || raw === "") continue;
     if (/^(https?:|mailto:|#)/i.test(raw)) continue;
@@ -204,6 +225,40 @@ export function markdownLinks(src) {
     out.push({ target, line: lineOf(clean, at), raw });
   }
   return out;
+}
+
+/**
+ * Linear scan of an optional link title and the closing parenthesis from
+ * `start`. Returns true when a well-formed ending follows. No regex, so an
+ * unterminated title cannot backtrack.
+ * @param {string} text
+ * @param {number} start
+ */
+function scanTitleAndClose(text, start) {
+  let i = start;
+  const skipSpaces = () => { while (i < text.length && (text[i] === " " || text[i] === "\t")) i += 1; };
+  skipSpaces();
+  const open = text[i];
+  if (open === '"' || open === "'" || open === "(") {
+    const close = open === "(" ? ")" : open;
+    i += 1;
+    let prevNewline = false;
+    for (; i < text.length; i += 1) {
+      const c = text[i];
+      if (c === "\\" && i + 1 < text.length) { i += 1; prevNewline = false; continue; }
+      if (c === close) break;
+      if (c === "\n") {
+        if (prevNewline) return false; // a blank line ends the link
+        prevNewline = true;
+        continue;
+      }
+      if (c !== " " && c !== "\t" && c !== "\r") prevNewline = false;
+    }
+    if (i >= text.length) return false;
+    i += 1;
+    skipSpaces();
+  }
+  return text[i] === ")";
 }
 
 /**
