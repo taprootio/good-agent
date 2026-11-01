@@ -1,53 +1,49 @@
 # Open questions and decisions for Jereme
 
-Decisions already taken in [design.md](design.md) are listed at the end so
-they can be overturned in one place.
+The first round of questions was answered on 2026-11-01; the answers are in
+[design.md](design.md) section 11. These are what remain.
 
 ## Questions
 
-1. **`canonical/name` severity.** On taproot-controls it warns that
-   `AI_GUIDELINES.md` is a name Codex and Copilot never read. It is true and
-   it is the root cause of the pointer problem there. Warn by default, info,
-   or off? (Design: warn.)
-2. **`claude/size` severity.** It warns on Taproot (619 lines at launch via
-   the import). Claude Code already warns at startup. Keep as warn so CI sees
-   it, or drop to info? (Design: warn.)
-3. **`copilot/pointer-thin` threshold.** 2,048 bytes lets taproot-controls'
-   Copilot file through at 1,879 bytes although it carries fifteen paraphrased
-   reminders. A lower threshold flags it; paraphrase itself stays with the
-   skill. (Design: 2,048, v0.2.)
-4. **One devDependency or none.** Design proposes plain ESM with JSDoc types
-   and `typescript` exact-pinned as the only devDependency for `tsc --noEmit`.
-   Trellis has no devDependencies at all. Drop it to match?
-5. **Package name.** `@taprootio/good-agent` is free. Unscoped `good-agent`
-   was unpublished by npm support in 2020 and is probably claimable. Scoped
-   only, or claim both (the unscoped one as a redirecting stub)?
-6. **Skill install shape.** Two generated copies (`.agents/skills/` for Codex
-   and Copilot, `.claude/skills/` for Claude Code) versus a symlink from one
-   to the other. Copies survive Windows and Claude's write-through-symlink
-   refusal; symlinks have one source of truth. (Design: copies, plus a v0.2
-   rule that they match.)
-7. **`inspect` in v0.1.** It is the screenshot-friendly "what each tool
-   sees" table and most of its logic exists for the rules anyway. Keep in
-   v0.1 or defer to keep the first release small? (Design: v0.1.)
-8. **Attribution policy for this repo.** Taproot and Trellis forbid AI
-   co-author trailers. This repo has no AGENTS.md yet, so the design commit
-   carries the default trailer. Amend before pushing if the same policy
-   applies here, and the repo's own AGENTS.md should say so.
-9. **Article naming.** Rule ids appear in output and will appear in the
-   article. `codex/size-budget`, `claude/import-canonical`, `links/broken`,
-   `dry/copied-canonical` are the ones readers will see first. Any renames
-   should happen before v0.1 since ids are API.
+1. **Trellis's own playbooks.** good-agent's `work-task` and Trellis's cover
+   the same loop. The proposed split is Trellis owns the backlog lifecycle
+   and good-agent owns the working and reviewing loop, with Trellis's
+   review steps deferring to good-agent's `review-loop.md` when it is
+   installed. That is a change to the Trellis repo. Agree, or keep the loop
+   in Trellis and have good-agent ship only the runner?
+2. **Where review history lives.** The runner writes findings, meta and logs
+   per round outside the tree (`~/.config/good-agent/reviews/<repo>/`), as
+   Taproot's exchange does, and the task closeout records the round count
+   and dispositions. Is anything else from the history wanted in the repo
+   (for instance the final round's findings file committed next to the
+   task)?
+3. **Default external reviewer model and effort.** Taproot's watcher defaults
+   are `gpt-6-astra` at `medium` for Codex and `sonnet` at `high` for Claude
+   (owner decisions, September 2026). The runner reads these from the
+   `review-ceiling` seam point in AGENTS.md; what should the shipped
+   defaults be when a repo sets none?
+4. **The unscoped name may be blocked.** npm support unpublished `good-agent`
+   in 2020, which can mean a takedown rather than an owner request. GA0005
+   publishes a placeholder to find out. If it is refused, the fallback is
+   `@taprootio/good-agent` as the package with the `good-agent` bin, which is
+   what the first design assumed.
+5. **wtfm for documentation.** Not recommended now: wtfm documents component
+   libraries from a Custom Elements Manifest through Eleventy, and this
+   package has no components. README plus `docs/` is enough for v0.1 and the
+   article. Revisit if a docs site is wanted for the rules reference.
 
 ## Decisions taken (overturnable)
 
 - Canonical detection by inbound references, ties to `AGENTS.md`.
 - Contradiction detection is skill-only; no heuristic rule.
 - No Copilot size rule (no documented limit).
-- Codex limit is treated as a combined chain budget with mid-file
-  truncation, per the loader source, not per file.
+- Codex limit is a combined chain budget with mid-file truncation, per the
+  loader source.
 - `info` findings hidden unless `--verbose` or `--json`.
-- New rules ship as warn/info in minors; error promotion only in majors.
+- New rules ship as warn or info in minors; error promotion only in majors.
 - MIT, same copyright line as Trellis.
-- Node 22+, zero runtime dependencies, no build step.
+- Node 22+, zero runtime dependencies, one exact-pinned devDependency, no
+  build step.
 - Config file name `good-agent.config.json`, JSON only.
+- No watcher by default for external review; the runner is a child process
+  of the authoring tool.

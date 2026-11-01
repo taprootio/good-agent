@@ -1,14 +1,16 @@
 # good-agent
 
-Keep your AI assistant instruction files DRY and inside what the tools
+Keep your AI tool instruction files DRY and inside what the tools
 actually load.
 
 > Status: design stage. Nothing is published yet. See [docs/design.md](docs/design.md).
 
+Good tools make hard work easy. Bad tools make easy work hard.
+
 If your repo has an `AGENTS.md` for Codex, a `CLAUDE.md` for Claude Code and a
 `.github/copilot-instructions.md` for Copilot, you have three files that drift
 apart, grow past what the tools will read, and point at files that no longer
-exist. Keeping agent definitions DRY is just as important as keeping code DRY.
+exist. Keeping AI tool instructions DRY is just as important as keeping code DRY.
 
 `good-agent` is two things:
 
@@ -17,17 +19,21 @@ exist. Keeping agent definitions DRY is just as important as keeping code DRY.
   content past 32 KiB along the directory chain, Claude Code only imports
   files through `@path`, Copilot ignores a `.instructions.md` file without
   `applyTo`, and so on. Runs locally, in a pre-commit hook and in CI.
-- **A skill.** A `SKILL.md` that teaches an assistant how to set the files up
+- **A skill.** A `SKILL.md` that teaches an AI tool how to set the files up
   (one canonical file, thin tool files, long material in linked docs) and how
   to audit them for the things a guard cannot see, such as a delta file that
   contradicts the canonical one.
+- **The loop.** Playbooks for writing a task and working a task with an
+  internal review loop and an external review by the other AI tool, and
+  `good-agent review`, which runs that external reviewer fresh and read-only
+  and returns its findings as JSON.
 
 Zero runtime dependencies. Node 22 or later. MIT.
 
 ## Five-minute setup
 
 ```bash
-npx @taprootio/good-agent check
+npx good-agent check
 ```
 
 That is the whole setup for the guard. It finds your instruction files, works
@@ -73,7 +79,7 @@ A clean repo prints one line and exits 0.
 Then, if you want the skill in the repo for Claude Code, Codex and Copilot:
 
 ```bash
-npx @taprootio/good-agent init --skill
+npx good-agent init --skill
 ```
 
 And in CI:
@@ -81,7 +87,7 @@ And in CI:
 ```yaml
 - uses: actions/setup-node@v4
   with: { node-version: 22 }
-- run: npx @taprootio/good-agent@0.1 check
+- run: npx good-agent@0.1 check
 ```
 
 ## The layout it enforces
@@ -94,7 +100,7 @@ And in CI:
 4. `.github/instructions/*.instructions.md` files carry per-language deltas
    with an `applyTo` glob and never restate the canonical file.
 5. Long material lives in `docs/` and is linked by path. Links cost no
-   context until an assistant opens them; imports cost context every session.
+   context until an AI tool opens them; imports cost context every session.
 
 ## Rules
 
@@ -147,7 +153,7 @@ file an instruction file links to, so a pre-commit hook or a
 changed-paths verifier can pass it everything and let it decide:
 
 ```sh
-git diff --cached --name-only | xargs npx --no-install @taprootio/good-agent check
+git diff --cached --name-only | xargs npx --no-install good-agent check
 ```
 
 ## What it does not do
@@ -155,7 +161,7 @@ git diff --cached --name-only | xargs npx --no-install @taprootio/good-agent che
 It does not read your files for meaning. A delta file that contradicts
 `AGENTS.md` in different words, a command that exists but no longer does what
 the file says, a paraphrased duplicate: those need a model. The bundled skill
-walks an assistant through that audit, and Claude Code users can also run
+walks an AI tool through that audit, and Claude Code users can also run
 `/doctor prompt-audit`.
 
 ## Related

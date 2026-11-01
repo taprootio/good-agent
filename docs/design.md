@@ -3,10 +3,10 @@
 Status: draft for review. Nothing here is implemented yet.
 Date of all document checks below: 2026-11-01.
 
-`@taprootio/good-agent` keeps AI coding-assistant instruction files DRY and
+`good-agent` keeps AI tool instruction files DRY and
 inside what the tools actually load. It ships a **guard** (a CLI check for
 local runs, pre-commit hooks and CI) and a **skill** (a SKILL.md that teaches
-an assistant to set the files up and keep them that way).
+an AI tool to set the files up and keep them that way).
 
 The rule it enforces: one canonical file, every tool reads it by import where
 the tool supports imports and by a short pointer where it does not, long
@@ -190,8 +190,11 @@ Checked against `registry.npmjs.org` on 2026-11-01.
   `@taprootio/trellis`.
 - `good-agent` (unscoped): one version (0.10.15) published in October 2019 and
   unpublished by npm support in February 2020. The record still exists with no
-  versions. It is probably claimable, but a scoped name avoids the question
-  and matches Trellis. The CLI binary is still `good-agent`.
+  versions. Decision (Jereme, 2026-11-01): claim it. `good-agent` is the
+  package people install (`npx good-agent check`), and `@taprootio/good-agent`
+  is published as a thin alias that depends on it and exposes the same bin,
+  so the org namespace is kept. Whether npm lets the unscoped name be reused
+  is only knowable by publishing; GA0005 tries a placeholder first.
 - Nearby packages worth knowing about: `agents-md-lint` (an AGENTS.md linter
   with scoring and autofix) and `agents-lint` ("detect stale references and
   context rot in AGENTS.md"). Both are single-file AGENTS.md linters. Neither
@@ -213,7 +216,7 @@ Checked against `registry.npmjs.org` on 2026-11-01.
 3. **Long material in linked docs.** Anything reference-shaped (runbooks,
    architecture detail, decision records) lives under `docs/` and is linked
    by path. Links are not loaded at launch by any tool, so they cost nothing
-   until an assistant opens them. Imports do cost context, so `@` is for the
+   until an AI tool opens them. Imports do cost context, so `@` is for the
    canonical file only.
 4. **Budgets are per tool, and the tools disagree.** Codex: 32 KiB combined
    along the directory chain. Claude: about 200 lines loaded at launch
@@ -453,7 +456,7 @@ that a human can also follow. A skill is the same kind of document with front
 matter that lets a tool discover it and load it on demand. The difference is
 who starts it. A playbook is invoked by the repo's own workflow ("to close a
 task, follow `trellis/playbooks/work-task.md`"). A skill is picked by the
-assistant from its description when the user's request matches ("set up
+AI tool from its description when the user's request matches ("set up
 instruction files for Codex", "why is Codex ignoring the end of AGENTS.md").
 
 Instruction hygiene is the second kind: nobody schedules it, it comes up when
@@ -467,14 +470,14 @@ same file from `AGENTS.md`.
 ```
 ---
 name: good-agent
-description: Set up and maintain AI assistant instruction files (AGENTS.md,
+description: Set up and maintain AI tool instruction files (AGENTS.md,
   CLAUDE.md, Copilot instructions) so one canonical file serves every tool,
   stays inside each tool's limits, and points only at files that exist. Use
   when creating or editing AGENTS.md, CLAUDE.md or .github/copilot-instructions.md,
   when `good-agent check` fails, or when asked to audit agent instructions.
 license: MIT
 metadata:
-  package: "@taprootio/good-agent"
+  package: "good-agent"
 ---
 ```
 
@@ -490,7 +493,7 @@ Body, in order:
    `@AGENTS.md` plus Claude-only notes; write
    `.github/copilot-instructions.md` as a pointer; add `.instructions.md`
    deltas with `applyTo`; move anything reference-shaped to `docs/` and link
-   it; run `npx @taprootio/good-agent check`.
+   it; run `npx good-agent check`.
 3. **Write rules that survive**: one rule per bullet, state the behaviour and
    the exception, name the check that enforces it when there is one, never
    restate the canonical file in a delta file (cross-reference the section
@@ -540,7 +543,7 @@ A plain git hook, no husky (Trellis has none either):
 #!/bin/sh
 # .githooks/pre-commit  (git config core.hooksPath .githooks)
 changed=$(git diff --cached --name-only)
-[ -n "$changed" ] && npx --no-install @taprootio/good-agent check $changed
+[ -n "$changed" ] && npx --no-install good-agent check $changed
 ```
 
 `check` with paths exits 0 at once when none of them is an instruction file or
@@ -560,8 +563,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: npx @taprootio/good-agent@0.1 check --json > good-agent.json || true
-      - run: npx @taprootio/good-agent@0.1 check
+      - run: npx good-agent@0.1 check --json > good-agent.json || true
+      - run: npx good-agent@0.1 check
 ```
 
 The first run keeps the JSON as a build artefact or for a PR comment step; the
@@ -574,7 +577,7 @@ That script already collects changed paths and picks checks by pattern. The
 addition is one step that hands it the paths and lets `check` decide:
 
 ```sh
-run_step "agent instructions" npx --no-install @taprootio/good-agent check "${paths[@]}"
+run_step "agent instructions" npx --no-install good-agent check "${paths[@]}"
 ```
 
 Because `check` resolves link targets, deleting `docs/architecture/foo.md`
@@ -640,9 +643,9 @@ trees.
 - **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
   Trellis. No build step, so the published files are the tested files and
   `npx` runs them directly. Type checking runs with `tsc --noEmit` from a
-  single exact-pinned `typescript` devDependency; it is dev-only, from a
-  single large maintainer, and can be dropped if Jereme would rather match
-  Trellis's zero-devDependency state (open question).
+  single exact-pinned `typescript` devDependency. Decision: keep it. It is
+  dev-only, from one large maintainer, and the lockfile pins its integrity
+  hash; dropping it would mean typing by hand what the checker catches.
 - **Runtime dependencies: none.** Everything needed is in Node 22:
   `node:fs`, `node:path`, `node:util.parseArgs` for flags, `node:test` for
   tests. The directory walk is hand-written (`fs.glob` is still marked
@@ -674,3 +677,144 @@ instruction files once their docs are checked the same way.
 for `claude/import-canonical` is tempting and safe; everything else edits
 prose), an MCP server (Trellis has one; nothing here needs it), per-tool
 "what would this tool see" rendering beyond `inspect`.
+
+## 11. Decisions taken on 2026-11-01
+
+Jereme asked for the recommended option on every open question and decided
+three himself.
+
+| Question | Decision |
+| --- | --- |
+| `canonical/name` severity | warn (true, and the root cause on taproot-controls) |
+| `claude/size` severity | warn (CI should see what Claude warns about locally) |
+| `copilot/pointer-thin` threshold | 2,048 bytes, v0.2 |
+| `typescript` devDependency | keep, exact-pinned, dev-only |
+| Package name | **Jereme:** claim unscoped `good-agent` as the package; scoped alias keeps the namespace |
+| Skill install shape | two generated copies, v0.2 rule that they match |
+| `inspect` in v0.1 | yes |
+| Attribution | **Jereme:** none in this repo; AGENTS.md says so |
+| Vocabulary | **Jereme:** the things that read these files are "AI tools"; never agents, assistants or helpers in prose |
+
+## 12. The task and review loops
+
+Jereme's second request: capture how Taproot writes and works a task with
+internal and external review, ship it from good-agent, and then remove the
+copies from taproot and taproot-controls.
+
+### What exists today
+
+- **Taproot** (`docs/playbooks/work-task.md`, 40 KB): an orchestrator
+  implements, dispatches the adversarial review to a fresh read-only context
+  on a cost-ceilinged model, confirms every finding against the code, fixes,
+  and repeats until the canonical JSON array is `[]` (cap five passes, then a
+  focused confirmation, then a design review). After that, the **other AI
+  tool** reviews externally through `scripts/review-exchange/`: a file mailbox
+  outside every checkout, a watcher the owner leaves running in a terminal,
+  and a fresh `codex exec` (or `claude -p`) per request with hooks, MCP
+  servers, plugins and API keys switched off and a read-only sandbox. Tree
+  digests before and after make a review void if the tree moved. Rounds are
+  numbered, prior findings are passed to the next round, and the direction
+  caps at ten (Codex reviewing) or five (Claude reviewing). Findings are the
+  canonical `{file, line, severity, suggestion}` array. The exchange has a
+  52-check self-test.
+- **Trellis** (`trellis/playbooks/`): universal `work-task`, `code-review`
+  and `pr-draft` playbooks that name seam points (`regenerate`, `check`,
+  `branch-naming`, `gates`, `attribution`) whose values live in each repo's
+  AGENTS.md. Its work-task loop is the same shape with one internal review
+  pass and no external round. taproot-controls uses these.
+- **Writing a task** is not a playbook anywhere yet. Taproot's practice is
+  visible in its task files and triage records: a story has a one-line
+  summary, Scope with acceptance criteria, Notes with decisions and rejected
+  alternatives, Risks, and it is refined against the codebase before work
+  starts.
+
+### What good-agent ships
+
+Two playbooks and a runner. The playbooks are shipped as skills (spec-only
+front matter) so every tool can discover them, and are also plain Markdown a
+repo can link to.
+
+1. **`write-task`**: review the problem against the codebase and the backlog;
+   write the story (summary, scope with checkable acceptance criteria,
+   notes, risks, dependencies, effort); run it through the review loop with
+   the story prompt (internal until clean, then external until clean);
+   finalize into the backlog.
+2. **`work-task`**: read and verify the task; plan with checkpoints; review
+   the plan internally then externally; branch; hand bounded slices to the
+   least-cost runtime that meets the quality floor (Taproot's "select a
+   runtime deliberately" and "review cost ceiling" sections, generalized);
+   implement; review the work internally until clean, then externally until
+   clean; close out; hand off without pushing.
+3. **`review-loop.md`**: the shared section both playbooks reference: fresh
+   context, read-only, factual prompt, severity semantics, confirm-then-fix,
+   repeat until `[]`, caps, design review on non-convergence, and the one
+   durable record (round count, findings, independence) that goes into the
+   task closeout. No model names in durable records.
+4. **`good-agent review`**: the runner. It spawns a fresh read-only reviewer
+   in-process and returns the findings:
+
+   ```
+   good-agent review --by codex|claude [--prompt diff|story|plan|design]
+                     [--base <ref>] [--task <path>] [--prior <findings.json>]
+                     [--model <m>] [--effort <e>] [--timeout-minutes 45] [--json]
+   ```
+
+   It carries over what Taproot's exchange already worked out: the hardened
+   invocation (`codex exec --sandbox read-only --ignore-rules -c approval_policy="never"`,
+   hooks, plugins and MCP servers off, API keys stripped; `claude -p` in safe
+   mode with only Read, Grep, Glob), the findings schema through
+   `--output-schema` and `--json-schema`, tree digests before and after, a
+   per-reviewer lock so two reviews never run at once, numbered rounds with
+   `--prior`, and a reviews directory outside the tree
+   (`~/.config/good-agent/reviews/<repo>/<id>-rN.{json,meta.json,log}`).
+   Seam points it reads from AGENTS.md: `external-reviewer` (which tool
+   reviews whose work) and `review-ceiling` (model and effort).
+
+### The watcher question
+
+Jereme asked whether launching the external reviewer from the command line
+and waiting on the exchange is worth it for the review history, and whether
+there is a better way.
+
+The mailbox and watcher exist for two reasons the exchange README states:
+each lane runs in its own worktree, so a repo-relative folder would be
+invisible, and a long-lived Codex session would break the fresh-context
+rule. Neither needs a watcher. A fresh `codex exec` per review is a child
+process the authoring tool can spawn itself; the mailbox location outside
+the tree is just a path. What the watcher adds is serialization (one review
+at a time against one login) and a single place the owner sets the model.
+A lock file and a config value give both.
+
+So the recommendation is: **no watcher by default.** The authoring tool runs
+`good-agent review` as a background command and gets one notification when
+it returns, exactly as it waits on `wait.mjs` today, minus the terminal tab
+and the polling loop. The review history is still written (findings, meta,
+log, per round), because the runner writes it, not the watcher. The history
+is useful for the handoff and the PR body (rounds, counts, what was waived),
+and `review-loop.md` says what from it goes into the task closeout. A
+`--watch` mode can stay for people who want one host process serving many
+lanes, but it is the exception.
+
+Two further ideas, both small once the runner exists:
+
+- **One runner, several prompts.** Story review, plan review, design review
+  and diff review differ only in the prompt and the inputs. Taproot runs the
+  design review through a separate hand-built dispatch; here it is
+  `--prompt design`.
+- **A third reviewer.** The Copilot CLI has a non-interactive mode and reads
+  the same AGENTS.md. Adding it as `--by copilot` needs its sandboxing and
+  structured-output story verified first; it is listed as later work, not
+  promised.
+
+### Overlap with Trellis
+
+Trellis's `work-task` playbook and good-agent's cover the same loop. The
+split that keeps both DRY: **Trellis owns the backlog lifecycle** (where an
+item lives, closeout, regenerate and check) and **good-agent owns the
+working and reviewing loop** (write a story, plan, dispatch, internal and
+external review, the runner). good-agent's playbooks name Trellis's seam
+points when Trellis is present and work without it otherwise. Trellis's own
+`work-task` steps 9 and 10 (review and fix) would then defer to
+`review-loop.md` when good-agent is installed. That edit to Trellis is a
+decision for Jereme and is listed in open questions; GA0006 covers the
+taproot and taproot-controls side.
