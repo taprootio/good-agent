@@ -8,23 +8,11 @@
   ],
   "nextId": "GA0008",
   "counts": {
-    "active": 7,
-    "completed": 0,
+    "active": 6,
+    "completed": 1,
     "removed": 0
   },
   "tasks": [
-    {
-      "id": "GA0001",
-      "title": "Build the guard (`good-agent check`) v0.1",
-      "status": "active",
-      "milestone": "Alpha",
-      "priority": "High",
-      "effort": 8,
-      "depends_on": [],
-      "owner": "je",
-      "collaborators": [],
-      "summary": "Ship the `good-agent` CLI with the nine v0.1 rules, canonical-file detection, config, human and JSON output, fixtures per rule, and the corpus script, as designed in docs/design.md."
-    },
     {
       "id": "GA0002",
       "title": "Ship the instruction-hygiene skill and `init --skill`",
@@ -115,6 +103,19 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Once good-agent is released, delete Trellis's own work-task playbook and MCP prompt and point its code-review and pr-draft playbooks at good-agent's review-loop skill, so the loop has one home."
+    },
+    {
+      "id": "GA0001",
+      "title": "Build the guard (`good-agent check`) v0.1",
+      "status": "completed",
+      "milestone": "Alpha",
+      "priority": "High",
+      "effort": 8,
+      "depends_on": [],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Ship the `good-agent` CLI with the nine v0.1 rules, canonical-file detection, config, human and JSON output, fixtures per rule, and the corpus script, as designed in docs/design.md.",
+      "completed_on": "2026-11-01"
     }
   ]
 }

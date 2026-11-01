@@ -28,7 +28,7 @@ export function stripCode(src) {
     const depth = quote ? (quote[0].match(/>/g) ?? []).length : 0;
     const rest = quote ? line.slice(quote[0].length) : line;
     if (fence && fence.depth > 0 && depth < fence.depth) fence = null;
-    if (fence && fence.indent > 0 && rest.trim() !== "" && rest.length - rest.trimStart().length < fence.indent) fence = null;
+    if (fence && fence.indent > 0 && rest.trim() !== "" && columnsOfIndent(rest) < fence.indent) fence = null;
     if (fence) {
       lines[i] = " ".repeat(line.length);
       const close = (fence.indent > 0 ? rest.slice(fence.indent) : rest).match(/^\s{0,3}(`{3,}|~{3,})/);
@@ -83,12 +83,11 @@ export function stripCode(src) {
  * @param {number} index
  */
 function nextIsDelimiter(lines, index) {
-  for (let j = index + 1; j < lines.length; j += 1) {
-    const bare = lines[j].replace(/\r$/, "");
-    if (bare.trim() === "") continue;
-    return bare.includes("|") && /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(bare);
-  }
-  return false;
+  // GFM puts the delimiter row on the very next line; a blockquote prefix is
+  // allowed so quoted tables are detected too.
+  if (index + 1 >= lines.length) return false;
+  const bare = lines[index + 1].replace(/\r$/, "").replace(/^(\s{0,3}>\s?)+/, "");
+  return bare.includes("|") && /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(bare);
 }
 
 /**
@@ -105,6 +104,16 @@ function splitCells(row) {
   }
   cells.push(row.slice(start));
   return cells;
+}
+
+/**
+ * Leading indentation in columns, a tab counting as four.
+ * @param {string} line
+ */
+function columnsOfIndent(line) {
+  let n = 0;
+  for (const c of line) { if (c === " ") n += 1; else if (c === "\t") n += 4; else break; }
+  return n;
 }
 
 /**

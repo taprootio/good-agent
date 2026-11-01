@@ -155,6 +155,10 @@ test("a CRLF or whitespace-only blank line is a paragraph break for link labels"
 
 test("prose with a pipe is not a table; a header above a delimiter row is, with or without outer pipes", () => {
   assert.deepEqual(markdownLinks("Use `a | [x](missing.md)` here.\n"), []);
+  assert.deepEqual(markdownLinks("Use `a | [x](missing.md)` here.\nthen | more\n"), [], "a pipe line that is not a delimiter row is not a table");
+  assert.deepEqual(markdownLinks("a | b\n\n--- | ---\n`x` | [z](gap.md)\n").map((l) => l.target), ["gap.md"], "a blank line before the delimiter row is not a table");
+  assert.deepEqual(markdownLinks("> | a | b |\n> | - | - |\n> | `x` | [q](quoted.md) |\n").map((l) => l.target), ["quoted.md"], "a blockquoted table");
+  assert.deepEqual(markdownLinks("- ```\n  a\n\t[y](b.md)\n  ```\n"), [], "a tab-indented line stays inside a list-item fence");
   assert.deepEqual(markdownLinks("| a ` | b |\n| --- | --- |\n| c ` | [x](missing.md) ` |\n").map((l) => l.target), ["missing.md"]);
   assert.deepEqual(markdownLinks("a | b\n--- | ---\n`x` | [y](t.md)\n").map((l) => l.target), ["t.md"]);
 });
