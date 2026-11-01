@@ -1,0 +1,166 @@
+// @ts-check
+/**
+ * Run discovery and the rules over a root and produce the result both
+ * reporters consume.
+ */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { discover, detectCanonical, codexChains, claudeLaunchSet, linkTargets, isInstructionPath } from "./discover.mjs";
+import { generatedBlocks, generatedBlockAt, parseFrontMatter } from "./markdown.mjs";
+import { RULES } from "./rules/index.mjs";
+
+export const VERSION = /** @type {{ version: string }} */ (JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8"))).version;
+
+/**
+ * @typedef {object} ReportedFinding
+ * @property {string} rule
+ * @property {"error" | "warn" | "info"} severity
+ * @property {string} file
+ * @property {number} [line]
+ * @property {string} message
+ * @property {string} fix
+ * @property {string[]} docs
+ * @property {string | null} generatedBy
+ * @property {Record<string, unknown>} [data]
+ */
+
+/**
+ * @typedef {object} Analysis
+ * @property {import("./discover.mjs").Repo} repo
+ * @property {import("./config.mjs").Config} config
+ * @property {ReturnType<typeof detectCanonical>} canonical
+ * @property {ReturnType<typeof codexChains>} chains
+ * @property {ReturnType<typeof claudeLaunchSet>} launch
+ */
+
+/**
+ * @param {string} root
+ * @param {import("./config.mjs").Config} config
+ * @returns {Analysis}
+ */
+export function analyze(root, config) {
+  const repo = discover(root, config);
+  return { repo, config, canonical: detectCanonical(repo, config), chains: codexChains(repo), launch: claudeLaunchSet(repo) };
+}
+
+/**
+ * @param {Analysis} analysis
+ * @param {{ only?: string[], skip?: string[] }} [options]
+ * @returns {ReportedFinding[]}
+ */
+export function runRules(analysis, options = {}) {
+  const only = options.only && options.only.length > 0 ? new Set(options.only) : null;
+  const skip = new Set(options.skip ?? []);
+  /** @type {Map<string, ReturnType<typeof generatedBlocks>>} */
+  const blocks = new Map();
+  /** @type {ReportedFinding[]} */
+  const out = [];
+  for (const rule of RULES) {
+    if (only && !only.has(rule.id)) continue;
+    if (skip.has(rule.id)) continue;
+    const configured = analysis.config.rules[rule.id];
+    if (configured === "off") continue;
+    const base = configured ?? rule.severity;
+    for (const f of rule.run({ repo: analysis.repo, config: analysis.config, canonical: analysis.canonical, chains: analysis.chains, launch: analysis.launch })) {
+      const forced = f.data && typeof f.data.severity === "string" ? f.data.severity : null;
+      // A rule may mark a finding as informational (for example the
+      // no-CLAUDE.md note); configuration can only lower it further.
+      const severity = /** @type {"error" | "warn" | "info"} */ (forced === "info" ? "info" : base);
+      let generatedBy = null;
+      if (f.line) {
+        const file = analysis.repo.byPath.get(f.file);
+        if (file) {
+          if (!blocks.has(f.file)) blocks.set(f.file, generatedBlocks(file.text));
+          generatedBy = generatedBlockAt(blocks.get(f.file) ?? [], f.line);
+        }
+      }
+      out.push({ rule: rule.id, severity, file: f.file, ...(f.line ? { line: f.line } : {}), message: f.message, fix: f.fix ?? rule.fix, docs: rule.docs, generatedBy, ...(f.data ? { data: f.data } : {}) });
+    }
+  }
+  const order = { error: 0, warn: 1, info: 2 };
+  out.sort((a, b) => order[a.severity] - order[b.severity] || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0) || (a.line ?? 0) - (b.line ?? 0));
+  return out;
+}
+
+/**
+ * @param {ReportedFinding[]} findings
+ * @param {{ strict?: boolean }} [options]
+ */
+export function summarize(findings, options = {}) {
+  const errors = findings.filter((f) => f.severity === "error").length;
+  const warnings = findings.filter((f) => f.severity === "warn").length;
+  const info = findings.filter((f) => f.severity === "info").length;
+  const exitCode = errors > 0 || (options.strict && warnings > 0) ? 1 : 0;
+  return { errors, warnings, info, exitCode };
+}
+
+/**
+ * Whether a `check <path...>` run has anything to do: true when any path is
+ * an instruction file, a file an instruction file links to or imports, or
+ * the config file in effect.
+ * @param {Analysis} analysis
+ * @param {string[]} paths  repo-relative POSIX paths
+ * @param {string | null} configPath  repo-relative, or null
+ */
+export function pathsNeedCheck(analysis, paths, configPath) {
+  if (paths.length === 0) return true;
+  const targets = linkTargets(analysis.repo);
+  const files = new Set(analysis.repo.files.map((f) => f.path));
+  return paths.some((p) => {
+    const rel = p.replace(/^\.\//, "");
+    if (configPath && rel === configPath) return true;
+    if (files.has(rel) || isInstructionPath(rel, analysis.config)) return true;
+    return targets.has(rel);
+  });
+}
+
+/** @param {Analysis} analysis */
+export function inspectData(analysis) {
+  const { repo, canonical, chains, launch, config } = analysis;
+  /** @param {string} path */
+  const readBy = (path) => {
+    /** @type {string[]} */
+    const tools = [];
+    if (/(^|\/)AGENTS(\.override)?\.md$/.test(path)) tools.push("codex", "copilot");
+    if (/(^|\/)(CLAUDE\.md|CLAUDE\.local\.md)$/.test(path) || /\.claude\/(CLAUDE\.md|rules\/)/.test(path)) tools.push("claude");
+    if (path === "CLAUDE.md") tools.push("copilot");
+    if (path.startsWith(".github/")) tools.push("copilot");
+    const viaImport = launch.entries.find((e) => e.file === path && e.via);
+    if (viaImport) tools.push(`claude:import(${viaImport.via})`);
+    if (launch.fallback && path === "AGENTS.md") tools.push("claude:fallback");
+    return [...new Set(tools)];
+  };
+  const pathSpecific = repo.files.filter((f) => /^\.github\/instructions\//.test(f.path)).map((f) => {
+    const fm = parseFrontMatter(f.text);
+    return { file: f.path, applyTo: fm && typeof fm.data.applyTo === "string" ? fm.data.applyTo : null };
+  });
+  return {
+    version: VERSION,
+    root: repo.root,
+    canonical: canonical.canonical,
+    canonicalReason: canonical.reason,
+    files: repo.files.map((f) => ({ path: f.path, bytes: f.bytes, lines: f.lines, readBy: readBy(f.path) })),
+    codex: {
+      limit: config.limits.codexBytes,
+      chains: chains.map((c) => ({
+        dir: c.dir || ".",
+        files: c.entries.map((e) => e.file),
+        entries: c.entries.map((e) => ({ file: e.file, bytes: e.bytes, ...(e.shadows ? { shadows: e.shadows } : {}) })),
+        bytes: c.bytes,
+        limit: config.limits.codexBytes,
+        ...(c.bytes > config.limits.codexBytes ? { truncatedAt: config.limits.codexBytes } : {}),
+      })),
+    },
+    claude: {
+      limit: config.limits.claudeLines,
+      launch: launch.entries.map((e) => ({ file: e.file, lines: e.lines, ...(e.via ? { via: e.via } : {}) })),
+      lines: launch.lines,
+      fallback: launch.fallback,
+    },
+    copilot: {
+      repoWide: repo.byPath.has(".github/copilot-instructions.md") ? ".github/copilot-instructions.md" : null,
+      pathSpecific,
+    },
+  };
+}

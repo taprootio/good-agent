@@ -47,7 +47,8 @@
       "priority": "High",
       "effort": 5,
       "depends_on": [
-        "GA0001"
+        "GA0001",
+        "GA0002"
       ],
       "owner": "je",
       "collaborators": [],

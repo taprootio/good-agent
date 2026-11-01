@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raw.githubusercontent.com/taprootio/good-agent/main/schema/config.json",
+  "version": 1,
+  "ignore": ["test/fixtures/**", "test/corpus/**"]
+}
