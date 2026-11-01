@@ -175,8 +175,8 @@ export function countLines(src) {
  * with single spaces, and one level of nested map (`metadata:` followed by
  * indented `k: v` lines). Anything deeper is reported as an error so the
  * caller can reject it. Returns null when the file has no front matter.
- * `plain` holds the raw text (comments included) of each top-level value
- * written without quotes, so a caller can reject one that YAML would not
+ * `plain` holds the raw text (comments included, one line per source line)
+ * of each top-level value written without quotes, so a caller can reject one that YAML would not
  * read as written.
  * @param {string} src
  * @returns {{ data: FrontMatter, plain: Record<string, string>, bodyStart: number, errors: string[] } | null}
@@ -242,7 +242,7 @@ export function parseFrontMatter(src) {
     if (indent > 0 && pending) {
       const part = /^["']/.test(pending.value) ? raw.trim() : stripComment(raw.trim());
       if (part !== "") pending.value = `${pending.value} ${part}`.trim();
-      pending.raw = `${pending.raw} ${raw.trim()}`.trim();
+      pending.raw = `${pending.raw}\n${raw.trim()}`.trim();
       continue;
     }
     errors.push(`line ${i + 1}: cannot parse "${raw.trim()}"`);

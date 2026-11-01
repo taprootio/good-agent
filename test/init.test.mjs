@@ -251,6 +251,31 @@ test("a symlinked destination is refused even with --force, and nothing is writt
   }
 });
 
+test("an obsolete reference replaced by a directory or a symlink is a refusal, not a crash", () => {
+  const skill = (/** @type {Record<string, string>} */ refs) => ({
+    "good-skill/SKILL.md": "---\nname: good-skill\ndescription: A fixture skill.\n---\n\n# Body\n",
+    ...Object.fromEntries(Object.entries(refs).map(([k, v]) => [`good-skill/references/${k}`, v])),
+  });
+  for (const kind of ["dir", "symlink"]) {
+    const first = tempTree(skill({ "a.md": "A\n", "b.md": "B\n" }));
+    const second = tempTree(skill({ "a.md": "A\n" }));
+    const target = scratch();
+    const install = (/** @type {string} */ dir, extra = /** @type {string[]} */ ([])) => run(["init", "--skill", "--cwd", target.root, "--skills-dir", dir, ...extra]);
+    try {
+      assert.equal(install(first.root).status, 0);
+      const obsolete = path(target.root, COPIES[0], "references/b.md");
+      rmSync(obsolete);
+      if (kind === "dir") mkdirSync(obsolete); else symlinkSync(join(first.root, "good-skill", "SKILL.md"), obsolete);
+      for (const extra of [[], ["--force"]]) {
+        const r = install(second.root, extra);
+        assert.equal(r.status, 2, `${kind}: ${r.stderr}`);
+        assert.doesNotMatch(r.stderr, /internal error/);
+        assert.ok(r.stderr.includes(".agents/skills/good-skill/references/b.md"), r.stderr);
+      }
+    } finally { first.cleanup(); second.cleanup(); target.cleanup(); }
+  }
+});
+
 test("every installed copy passes the skill validator", () => {
   withInstalled((root) => {
     for (const copy of COPIES) assert.deepEqual(validateSkillFile(path(root, copy, "SKILL.md")), [], copy);

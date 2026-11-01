@@ -138,12 +138,13 @@ export function installSkills({ root, skillsDir = DEFAULT_SKILLS_DIR, force = fa
         /** @type {Record<string, string>} */
         let manifest = {};
         try { manifest = readManifest(join(target, MANIFEST)); } catch (error) { if (!force) throw error; }
-        if (!force) checkTarget({ root, target, refs, manifest });
         // Installed reference files that are no longer shipped are removed
-        // (a clean one, or any under --force; an edited one was refused above).
+        // (a clean one, or any under --force; an edited one is refused below).
         for (const rel of Object.keys(manifest)) if (!(rel in refs) && safeRel(rel)) orphans.push(rel);
+        // Preflight them before anything is read or compared.
+        if (orphans.length > 0) preflightTarget(root, base, name, [...Object.keys(refs), ...orphans]);
+        if (!force) checkTarget({ root, target, refs, manifest });
       }
-      if (orphans.length > 0) preflightTarget(root, base, name, [...Object.keys(refs), ...orphans]);
       plan.push({ target, skill, refs, orphans });
     }
   }

@@ -50,7 +50,7 @@ test("the generated recipes never put a bare --- line outside a code fence (it w
 
 test("a CRLF checkout of an unchanged skill is not drift, and a repair keeps CRLF", () => {
   const original = readFileSync(join(REPO, "skill", "good-agent", "SKILL.md"), "utf8");
-  const crlf = original.replace(/\n/g, "\r\n");
+  const crlf = original.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n");
   const tree = tempTree({ "SKILL.md": crlf });
   try {
     const file = join(tree.root, "SKILL.md");

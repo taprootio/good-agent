@@ -29,11 +29,12 @@ test("every shipped skill is valid and within its line limit", () => {
 
 test("validator: an unquoted name or description that YAML would misread is flagged; the quoted form passes", () => {
   const text = (/** @type {string} */ description) => `---\nname: x\ndescription: ${description}\n---\n`;
-  for (const bad of ["a: b", "a #b", "[x] y", "*x", "!x", "@x", "`x`", "%x", "- x: y"]) {
+  for (const bad of ["a: b", "a: b # c", "[x] y", "*x", "!x", "@x", "`x`", "%x", "- x: y"]) {
     assert.ok(validateSkillText(text(bad), "x").some((p) => /quote the value/.test(p)), bad);
   }
-  for (const good of ["plain words, with `code` and a#b", '"a: b"', "\"a: b #c\n  and more: here\"", "'a: b'"]) {
+  for (const good of ["plain words, with `code` and a#b", "plain words # a trailing comment", "words\n  more words # comment", '"a: b"', "\"a: b #c\n  and more: here\"", "'a: b'"]) {
     assert.deepEqual(validateSkillText(text(good), "x"), [], good);
   }
+  assert.deepEqual(validateSkillText("---\nname: x # directory name\ndescription: d # what it does\n---\n", "x"), []);
   assert.ok(validateSkillText("---\nname: a: b\ndescription: d\n---\n", "a").some((p) => /name is an unquoted/.test(p)));
 });

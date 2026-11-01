@@ -37,7 +37,10 @@ export function validateSkillText(text, dirName, options = {}) {
   for (const key of Object.keys(fm.data)) if (!SPEC_KEYS.has(key)) problems.push(`unknown front matter key "${key}" (the spec allows ${[...SPEC_KEYS].join(", ")})`);
   for (const key of ["name", "description"]) {
     const raw = fm.plain[key];
-    if (raw !== undefined && (/: /.test(raw) || / #/.test(raw) || /^[\[\]{},&*!|>'"%@`]/.test(raw))) problems.push(`${key} is an unquoted value that YAML would not read as written (it contains ": " or " #", or starts with an indicator character); quote the value`);
+    if (raw === undefined) continue;
+    // A ` #` after whitespace ends the value (a trailing comment is valid YAML).
+    const value = raw.split("\n").map((l) => l.replace(/(^|[ \t]+)#.*$/, "").trim()).filter(Boolean).join(" ");
+    if (/: /.test(value) || /^[\[\]{},&*!|>'"%@`]/.test(value)) problems.push(`${key} is an unquoted value that YAML would not read as written (it contains ": " or starts with an indicator character); quote the value`);
   }
   const name = fm.data.name;
   if (typeof name !== "string" || name === "") problems.push("name is required");
