@@ -153,7 +153,8 @@ file an instruction file links to, so a pre-commit hook or a
 changed-paths verifier can pass it everything and let it decide:
 
 ```sh
-git diff --cached --name-only | xargs npx --no-install good-agent check
+changed=$(git diff --cached --name-only)
+[ -z "$changed" ] || npx --no-install good-agent check $changed
 ```
 
 ## What it does not do
