@@ -1,0 +1,53 @@
+{
+  "name": "good-agent",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Keep AI tool instruction files (AGENTS.md, CLAUDE.md, Copilot instructions) DRY and inside what each tool actually loads.",
+  "keywords": [
+    "agents.md",
+    "claude.md",
+    "copilot-instructions",
+    "ai-tools",
+    "lint",
+    "cli"
+  ],
+  "homepage": "https://github.com/taprootio/good-agent#readme",
+  "bugs": "https://github.com/taprootio/good-agent/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/taprootio/good-agent.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "good-agent": "./scripts/good-agent.mjs"
+  },
+  "exports": {
+    "./cli": "./src/cli.mjs"
+  },
+  "files": [
+    "scripts/",
+    "src/",
+    "skill/",
+    "schema/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "corpus": "node scripts/corpus.mjs",
+    "check": "node scripts/good-agent.mjs check"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}
