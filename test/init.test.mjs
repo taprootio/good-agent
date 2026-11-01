@@ -306,7 +306,9 @@ test("every installed copy passes the skill validator", () => {
 test("npm pack lists the shipped skill", () => {
   const r = spawnSync("npm", ["pack", "--dry-run", "--json"], { cwd: REPO, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  const [pack] = JSON.parse(r.stdout);
+  // npm 10 prints an array of packed packages; npm 11+ prints an object keyed by package name.
+  const parsed = JSON.parse(r.stdout);
+  const pack = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
   /** @type {string[]} */
   const paths = pack.files.map((/** @type {{ path: string }} */ f) => f.path);
   for (const want of ["skill/good-agent/SKILL.md", "skill/review-loop/SKILL.md", "skill/review-loop/references/review-diff.md", "skill/write-task/SKILL.md", "skill/work-task/SKILL.md"]) {

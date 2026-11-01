@@ -54,7 +54,9 @@ test("placeholders are README-only: no bin, no main, files is README.md", () => 
 test("npm pack lists the shipped files and nothing from alias, placeholder, test, docs or trellis", () => {
   const r = spawnSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: REPO, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  const [info] = JSON.parse(r.stdout);
+  // npm 10 prints an array of packed packages; npm 11+ prints an object keyed by package name.
+  const parsed = JSON.parse(r.stdout);
+  const info = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
   /** @type {string[]} */
   const paths = info.files.map((/** @type {{ path: string }} */ f) => f.path);
   for (const want of ["scripts/good-agent.mjs", "src/cli.mjs", "skill/good-agent/SKILL.md", "skill/review-loop/references/review-diff.md", "schema/findings.json", "CHANGELOG.md", "LICENSE", "README.md", "package.json"]) {
