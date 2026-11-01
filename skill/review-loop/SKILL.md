@@ -1,11 +1,11 @@
 ---
 name: review-loop
-description: Run the review loop on a story, a plan, a design or a diff: a
+description: "Run the review loop on a story, a plan, a design or a diff: a
   fresh read-only reviewer, findings confirmed against the cited code before
   any fix, repeated until the findings array is empty, first internally and
   then externally by the other AI tool. Use when asked to review work, when
   the write-task or work-task skill reaches a review step, or when a change
-  needs a second opinion before it is handed off.
+  needs a second opinion before it is handed off."
 license: MIT
 metadata:
   package: good-agent
@@ -111,9 +111,10 @@ run the other tool's CLI by hand. Build the prompt from the same file with
 the manual ending, feed it on standard input, and take the final fenced
 JSON array as the findings, for example
 `codex exec --sandbox read-only -c approval_policy="never" - < prompt.txt`.
-Check the tree digest (`git status --porcelain` and `git diff | shasum`)
-yourself before and after: a reviewer that changed the tree failed the
-round.
+Compute the tree digest yourself before and after, the way the runner
+does: the output of `git status --porcelain` plus the content of every
+tracked and unignored untracked file (`git ls-files -co --exclude-standard`),
+hashed together. A difference voids the round.
 
 ## The durable record
 

@@ -35,6 +35,10 @@ export function validateSkillText(text, dirName, options = {}) {
   if (!fm) { problems.push("front matter must start on line 1 with ---"); return problems; }
   problems.push(...fm.errors);
   for (const key of Object.keys(fm.data)) if (!SPEC_KEYS.has(key)) problems.push(`unknown front matter key "${key}" (the spec allows ${[...SPEC_KEYS].join(", ")})`);
+  for (const key of ["name", "description"]) {
+    const raw = fm.plain[key];
+    if (raw !== undefined && (/: /.test(raw) || / #/.test(raw) || /^[\[\]{},&*!|>'"%@`]/.test(raw))) problems.push(`${key} is an unquoted value that YAML would not read as written (it contains ": " or " #", or starts with an indicator character); quote the value`);
+  }
   const name = fm.data.name;
   if (typeof name !== "string" || name === "") problems.push("name is required");
   else {

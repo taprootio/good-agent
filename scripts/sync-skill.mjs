@@ -54,12 +54,16 @@ export function renderRecipes() {
 }
 
 const check = process.argv.includes("--check");
-const current = readFileSync(SKILL, "utf8");
+const raw = readFileSync(SKILL, "utf8");
+// A CRLF checkout (git core.autocrlf) keeps its line endings: compare and
+// render with LF, write back with CRLF when the first line ends with one.
+const crlf = /^[^\n]*\r\n/.test(raw);
+const current = raw.replace(/\r\n/g, "\n");
 const start = current.indexOf(BEGIN);
 const end = current.indexOf(END);
 if (start < 0 || end < 0 || end < start) { console.error(`${SKILL}: recipe markers missing`); process.exit(2); }
 const next = `${current.slice(0, start + BEGIN.length)}\n${renderRecipes()}${current.slice(end)}`;
 if (next === current) { if (!check) console.log("recipes up to date"); process.exit(0); }
 if (check) { console.error(`${SKILL}: recipes are out of date; run npm run sync-skill`); process.exit(1); }
-writeFileSync(SKILL, next);
+writeFileSync(SKILL, crlf ? next.replace(/\n/g, "\r\n") : next);
 console.log(`wrote recipes for ${RULES.length} rules into ${SKILL}`);

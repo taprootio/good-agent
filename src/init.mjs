@@ -12,7 +12,7 @@
  * tests can use a fixture skill.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, rmdirSync, writeFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, rmdirSync, writeFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -133,6 +133,7 @@ export function installSkills({ root, skillsDir = DEFAULT_SKILLS_DIR, force = fa
       const target = join(root, ...base.split("/"), name);
       /** @type {string[]} */
       const orphans = [];
+      preflightTarget(root, base, name, Object.keys(refs));
       if (existsSync(target)) {
         /** @type {Record<string, string>} */
         let manifest = {};
@@ -142,6 +143,7 @@ export function installSkills({ root, skillsDir = DEFAULT_SKILLS_DIR, force = fa
         // (a clean one, or any under --force; an edited one was refused above).
         for (const rel of Object.keys(manifest)) if (!(rel in refs) && safeRel(rel)) orphans.push(rel);
       }
+      if (orphans.length > 0) preflightTarget(root, base, name, [...Object.keys(refs), ...orphans]);
       plan.push({ target, skill, refs, orphans });
     }
   }
@@ -172,6 +174,46 @@ export function installSkills({ root, skillsDir = DEFAULT_SKILLS_DIR, force = fa
     (changed ? installed : unchanged).push(relative(root, item.target).split(sep).join("/"));
   }
   return { installed, unchanged };
+}
+
+/**
+ * Check one destination path before anything is written: absent is fine; a
+ * symlink is refused (a refresh would write through it, --force or not); a
+ * path of the wrong type is refused.
+ * @param {string} root
+ * @param {string} abs
+ * @param {"dir" | "file"} kind
+ */
+function preflightPath(root, abs, kind) {
+  /** @type {import("node:fs").Stats} */
+  let st;
+  try { st = lstatSync(abs); } catch { return; }
+  const shown = relative(root, abs).split(sep).join("/");
+  if (st.isSymbolicLink()) throw new InitRefusal(`${shown} is a symbolic link; init will not write through it (remove it and re-run)`);
+  if (kind === "dir" ? !st.isDirectory() : !st.isFile()) throw new InitRefusal(`${shown} exists and is not a ${kind === "dir" ? "directory" : "regular file"}; move it aside and re-run`);
+}
+
+/**
+ * Preflight every destination one skill install touches: the skills root,
+ * the skill directory, SKILL.md, the manifest, each reference file and its
+ * parent directories.
+ * @param {string} root
+ * @param {string} base  an INSTALL_DIRS entry
+ * @param {string} name
+ * @param {string[]} refs  reference paths relative to the skill directory, POSIX
+ */
+function preflightTarget(root, base, name, refs) {
+  const parts = base.split("/");
+  for (let i = 1; i <= parts.length; i += 1) preflightPath(root, join(root, ...parts.slice(0, i)), "dir");
+  const target = join(root, ...parts, name);
+  preflightPath(root, target, "dir");
+  preflightPath(root, join(target, "SKILL.md"), "file");
+  preflightPath(root, join(target, MANIFEST), "file");
+  for (const rel of refs) {
+    const segs = rel.split("/");
+    for (let i = 1; i < segs.length; i += 1) preflightPath(root, join(target, ...segs.slice(0, i)), "dir");
+    preflightPath(root, join(target, ...segs), "file");
+  }
 }
 
 /**

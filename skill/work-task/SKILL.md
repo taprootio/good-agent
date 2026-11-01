@@ -1,13 +1,13 @@
 ---
 name: work-task
-description: Take a backlog task from active to ready for the owner's
+description: "Take a backlog task from active to ready for the owner's
   review: ground in the repository's conventions, read and verify the task,
   propose refinements, branch, write the plan into the task, review the plan
   internally then externally, dispatch bounded slices at the least-cost
   runtime that meets the quality floor, implement, review the work
   internally until clean and externally until clean, close out and hand off
   without pushing. Use when asked to work on, implement, tackle or finish a
-  task, story or backlog item.
+  task, story or backlog item."
 license: MIT
 metadata:
   package: good-agent

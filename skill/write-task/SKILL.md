@@ -1,11 +1,11 @@
 ---
 name: write-task
-description: Turn a problem into a backlog story that a fresh implementer
+description: "Turn a problem into a backlog story that a fresh implementer
   can work: review the problem against the codebase and the backlog, write
   the story with checkable acceptance criteria, review it internally until
   clean, review it externally with the other AI tool until clean, then
   finalize it. Use when asked to write, draft or refine a task, story or
-  ticket, or when a request is too large to start without one.
+  ticket, or when a request is too large to start without one."
 license: MIT
 metadata:
   package: good-agent

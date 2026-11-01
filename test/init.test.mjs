@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, FIXTURES, REPO, tempTree } from "./helpers.mjs";
@@ -190,6 +190,65 @@ test("references that a skill drops or renames are reconciled, and the manifest 
       assert.equal(existsSync(path(target.root, c, "references")), false);
     }
   } finally { first.cleanup(); second.cleanup(); third.cleanup(); target.cleanup(); }
+});
+
+test("a regular file where a skill directory should be is refused up front: exit 2 naming it, nothing written", () => {
+  const t = scratch();
+  try {
+    mkdirSync(join(t.root, ".claude", "skills"), { recursive: true });
+    writeFileSync(join(t.root, ".claude", "skills", "good-skill"), "in the way\n");
+    for (const extra of [[], ["--force"]]) {
+      const r = init(t.root, extra);
+      assert.equal(r.status, 2, r.stderr);
+      assert.ok(r.stderr.includes(".claude/skills/good-skill"), r.stderr);
+      assert.doesNotMatch(r.stderr, /internal error/);
+      assert.equal(existsSync(join(t.root, ".agents")), false, "the other copy is not written either");
+    }
+    assert.equal(readFileSync(join(t.root, ".claude", "skills", "good-skill"), "utf8"), "in the way\n");
+  } finally { t.cleanup(); }
+});
+
+test("a file where the skills root or a reference parent should be is refused too", () => {
+  const t = scratch();
+  try {
+    mkdirSync(join(t.root, ".agents"), { recursive: true });
+    writeFileSync(join(t.root, ".agents", "skills"), "x\n");
+    const r = init(t.root);
+    assert.equal(r.status, 2);
+    assert.ok(r.stderr.includes(".agents/skills"), r.stderr);
+  } finally { t.cleanup(); }
+  withInstalled((root) => {
+    rmSync(path(root, COPIES[1], "references"), { recursive: true });
+    writeFileSync(path(root, COPIES[1], "references"), "x\n");
+    const r = init(root, ["--force"]);
+    assert.equal(r.status, 2);
+    assert.ok(r.stderr.includes(".claude/skills/good-skill/references"), r.stderr);
+  });
+});
+
+test("a symlinked destination is refused even with --force, and nothing is written through it", () => {
+  for (const what of ["dir", "skill", "manifest", "reference"]) {
+    const t = scratch();
+    const elsewhere = scratch();
+    try {
+      assert.equal(init(t.root).status, 0);
+      const copy = path(t.root, COPIES[1], "");
+      writeFileSync(join(elsewhere.root, "other.md"), "other\n");
+      const victim = { dir: copy.replace(/\/$/, ""), skill: path(t.root, COPIES[1], "SKILL.md"), manifest: path(t.root, COPIES[1], ".good-agent-manifest.json"), reference: path(t.root, COPIES[1], "references/note.md") }[what];
+      assert.ok(victim);
+      rmSync(victim, { recursive: true });
+      if (what === "dir") { mkdirSync(join(elsewhere.root, "real")); symlinkSync(join(elsewhere.root, "real"), victim); } else symlinkSync(join(elsewhere.root, "other.md"), victim);
+      for (const extra of [[], ["--force"]]) {
+        const r = init(t.root, extra);
+        assert.equal(r.status, 2, `${what}: ${r.stderr}`);
+        assert.match(r.stderr, /symbolic link/);
+        assert.ok(r.stderr.includes(".claude/skills/good-skill"), r.stderr);
+      }
+      assert.ok(lstatSync(victim).isSymbolicLink());
+      assert.equal(readFileSync(join(elsewhere.root, "other.md"), "utf8"), "other\n");
+      assert.deepEqual(what === "dir" ? readdirSync(join(elsewhere.root, "real")) : [], []);
+    } finally { t.cleanup(); elsewhere.cleanup(); }
+  }
 });
 
 test("every installed copy passes the skill validator", () => {

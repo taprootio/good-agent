@@ -175,8 +175,11 @@ export function countLines(src) {
  * with single spaces, and one level of nested map (`metadata:` followed by
  * indented `k: v` lines). Anything deeper is reported as an error so the
  * caller can reject it. Returns null when the file has no front matter.
+ * `plain` holds the raw text (comments included) of each top-level value
+ * written without quotes, so a caller can reject one that YAML would not
+ * read as written.
  * @param {string} src
- * @returns {{ data: FrontMatter, bodyStart: number, errors: string[] } | null}
+ * @returns {{ data: FrontMatter, plain: Record<string, string>, bodyStart: number, errors: string[] } | null}
  */
 export function parseFrontMatter(src) {
   if (src.charCodeAt(0) === 0xfeff) src = src.slice(1);
@@ -186,12 +189,14 @@ export function parseFrontMatter(src) {
   for (let i = 1; i < lines.length; i += 1) {
     if (lines[i].replace(/\r$/, "") === "---") { end = i; break; }
   }
-  if (end < 0) return { data: {}, bodyStart: src.length, errors: ["front matter is not closed with ---"] };
+  if (end < 0) return { data: {}, plain: {}, bodyStart: src.length, errors: ["front matter is not closed with ---"] };
   /** @type {FrontMatter} */
   const data = Object.create(null);
   /** @type {string[]} */
   const errors = [];
-  /** @type {{ key: string, line: number, value: string } | null} */
+  /** @type {Record<string, string>} */
+  const plain = Object.create(null);
+  /** @type {{ key: string, line: number, value: string, raw: string } | null} */
   let pending = null;
   /** @type {string | null} */
   let nestedKey = null;
@@ -201,7 +206,10 @@ export function parseFrontMatter(src) {
   const finish = () => {
     if (!pending) return;
     if (isUnterminated(pending.value)) errors.push(`line ${pending.line}: unterminated quoted value for "${pending.key}"`);
-    else data[pending.key] = unquote(pending.value);
+    else {
+      data[pending.key] = unquote(pending.value);
+      if (!/^["']/.test(pending.value)) plain[pending.key] = pending.raw;
+    }
     pending = null;
   };
   for (let i = 1; i < end; i += 1) {
@@ -215,7 +223,7 @@ export function parseFrontMatter(src) {
       if (key === "__proto__" || key === "constructor" || key === "prototype") { errors.push(`line ${i + 1}: "${key}" is not an allowed key`); continue; }
       finish();
       if (value === "") { data[key] = Object.create(null); nestedKey = key; nestedIndent = 0; }
-      else { pending = { key, line: i + 1, value: value.trim() }; nestedKey = null; }
+      else { pending = { key, line: i + 1, value: value.trim(), raw: top[2].trim() }; nestedKey = null; }
       continue;
     }
     if (indent > 0 && nestedKey) {
@@ -234,6 +242,7 @@ export function parseFrontMatter(src) {
     if (indent > 0 && pending) {
       const part = /^["']/.test(pending.value) ? raw.trim() : stripComment(raw.trim());
       if (part !== "") pending.value = `${pending.value} ${part}`.trim();
+      pending.raw = `${pending.raw} ${raw.trim()}`.trim();
       continue;
     }
     errors.push(`line ${i + 1}: cannot parse "${raw.trim()}"`);
@@ -243,7 +252,7 @@ export function parseFrontMatter(src) {
   errors.sort((x, y) => lineOfError(x) - lineOfError(y));
   let bodyStart = 0;
   for (let i = 0; i <= end; i += 1) bodyStart += lines[i].length + 1;
-  return { data, bodyStart: Math.min(bodyStart, src.length), errors };
+  return { data, plain, bodyStart: Math.min(bodyStart, src.length), errors };
 }
 
 /**

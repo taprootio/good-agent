@@ -47,3 +47,18 @@ test("the generated recipes never put a bare --- line outside a code fence (it w
   }
   assert.equal(fenced, false);
 });
+
+test("a CRLF checkout of an unchanged skill is not drift, and a repair keeps CRLF", () => {
+  const original = readFileSync(join(REPO, "skill", "good-agent", "SKILL.md"), "utf8");
+  const crlf = original.replace(/\n/g, "\r\n");
+  const tree = tempTree({ "SKILL.md": crlf });
+  try {
+    const file = join(tree.root, "SKILL.md");
+    assert.equal(sync(["--check", file]).status, 0);
+    assert.equal(readFileSync(file, "utf8"), crlf, "an in-sync CRLF file is not rewritten");
+    writeFileSync(file, crlf.replace(/<!-- BEGIN RECIPES -->[\s\S]*<!-- END RECIPES -->/, "<!-- BEGIN RECIPES -->\r\n<!-- END RECIPES -->"));
+    assert.equal(sync(["--check", file]).status, 1);
+    assert.equal(sync([file]).status, 0);
+    assert.equal(readFileSync(file, "utf8"), crlf);
+  } finally { tree.cleanup(); }
+});

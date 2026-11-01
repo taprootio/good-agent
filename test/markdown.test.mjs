@@ -225,3 +225,13 @@ test("front matter: a trailing comment on an unquoted value is dropped; a hash i
   assert.equal(fm.data.description, "first second");
   assert.equal(/** @type {any} */ (fm.data.metadata).owner, "je");
 });
+
+test("front matter: a double-quoted value spanning three lines folds with single spaces and keeps colons and hashes", () => {
+  const fm = parseFrontMatter('---\nname: x\ndescription: "First line: one\n  second line # not a comment\n  third line."\nlicense: MIT\n---\nbody\n');
+  assert.ok(fm);
+  assert.deepEqual(fm.errors, []);
+  assert.equal(fm.data.description, "First line: one second line # not a comment third line.");
+  assert.equal(fm.data.license, "MIT");
+  assert.equal("description" in fm.plain, false);
+  assert.equal(fm.plain.license, "MIT");
+});
