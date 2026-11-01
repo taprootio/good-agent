@@ -8,6 +8,7 @@ import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { BIN, REPO, tempTree } from "./helpers.mjs";
@@ -1004,5 +1005,70 @@ test("a task whose real path is outside the repository is exit 2", () => {
     assert.equal(ok.status, 0, ok.stderr);
     const slugDir = readdirSync(ok.reviews).find((n) => !n.includes(".lock") && n !== "record.txt") ?? "";
     assert.ok(readFileSync(join(ok.reviews, slugDir, "GA0002-story-r1.log"), "utf8").includes("trellis/active/GA0002.md"));
+  } finally { r.cleanup(); }
+});
+
+test("a runner paused with an empty lock that another runner takes over fails without starting its reviewer, and leaves the new owner's lock alone", async () => {
+  const r = repo();
+  const reviews = scratch();
+  const pause = scratch("good-agent-lockpause-");
+  const started = join(reviews, "started.txt");
+  try {
+    const args = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    const base = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews, FAKE_STARTED_FILE: started };
+    const a = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, GOOD_AGENT_TEST_PAUSE_LOCK: pause, NODE_TEST_CONTEXT: "child-v8" } });
+    let aErr = "";
+    a.stderr.on("data", (d) => { aErr += d; });
+    await waitFor(() => existsSync(join(pause, "paused")));
+    const lock = join(reviews, "codex.lock");
+    assert.equal(readFileSync(lock, "utf8"), "", "A's lock is still empty");
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    // B treats the old empty lock as abandoned, takes it over and starts its (slow) reviewer.
+    const b = spawn(process.execPath, [BIN, "review", ...args], { cwd: r.root, env: { ...base, FAKE_SLEEP: "3" } });
+    let bErr = "";
+    b.stderr.on("data", (d) => { bErr += d; });
+    await waitFor(() => lockPgid(reviews, "codex") !== null);
+    const bPgid = lockPgid(reviews, "codex");
+    writeFileSync(join(pause, "resume"), "");
+    const aStatus = await new Promise((done) => a.on("close", done));
+    assert.equal(aStatus, 3, aErr);
+    assert.match(aErr, /no longer belongs to this run/);
+    assert.equal(lockPgid(reviews, "codex"), bPgid, "A did not touch B's lock");
+    const bStatus = await new Promise((done) => b.on("close", done));
+    assert.equal(bStatus, 0, bErr);
+    assert.equal(readFileSync(started, "utf8").trim().split("\n").length, 1, "only B's reviewer ever started");
+    assert.ok(!existsSync(lock), "B released its lock");
+  } finally { r.cleanup(); }
+});
+
+test("the task is resolved again once the lock is held, so a retargeted symlink is never named as one subject and fingerprinted as another", async () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    writeFileSync(join(r.root, "A.md"), TASK);
+    writeFileSync(join(r.root, "B.md"), TASK.replace(/GA0002/g, "GA0003"));
+    symlinkSync("A.md", join(r.root, "link.md"));
+    r.g("add", "."); r.g("commit", "-q", "-m", "tasks");
+    const lock = join(reviews, "codex.lock");
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, host: hostname(), started: "now" }));
+    const env = { ...process.env, PATH: `${FAKES}:${process.env.PATH}`, GOOD_AGENT_REVIEWS: reviews };
+    const child = spawn(process.execPath, [BIN, "review", "--by", "codex", "--prompt", "story", "--task", "link.md"], { cwd: r.root, env });
+    let stderr = "";
+    child.stderr.on("data", (d) => { stderr += d; });
+    await new Promise((done) => setTimeout(done, 800)); // past the usage checks, waiting for the lock
+    rmSync(join(r.root, "link.md"));
+    symlinkSync("B.md", join(r.root, "link.md"));
+    rmSync(lock);
+    const status = await new Promise((done) => child.on("close", done));
+    assert.equal(status, 0, stderr);
+    const m = metas(reviews);
+    assert.deepEqual(Object.keys(m), ["GA0003-story-r1"], "the id follows the subject the lock-time resolution found");
+    const slugDir = readdirSync(reviews).find((n) => !n.includes(".lock") && n !== "record.txt") ?? "";
+    const log = readFileSync(join(reviews, slugDir, "GA0003-story-r1.log"), "utf8");
+    assert.match(log, /story B\.md/); assert.ok(!/story A\.md/.test(log), "the prompt does not name the old target");
+    const expected = createHash("sha256").update(realpathSync(join(r.root, "B.md"))).update("\0").update(readFileSync(join(r.root, "B.md"))).digest("hex");
+    assert.equal(m["GA0003-story-r1"].task_digest_before, expected, "the fingerprint is of the file the prompt names");
+    assert.equal(m["GA0003-story-r1"].task_digest_after, expected);
   } finally { r.cleanup(); }
 });

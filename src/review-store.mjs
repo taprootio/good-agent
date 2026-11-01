@@ -4,9 +4,9 @@
  * review, and the tree digest that makes a review void when the tree moves
  * (docs/design.md section 12, GA0004).
  */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseFrontMatter } from "./markdown.mjs";
@@ -158,6 +158,18 @@ function groupAlive(pgid) {
 }
 
 /**
+ * Test-only: with GOOD_AGENT_TEST_PAUSE_LOCK=<dir> (honoured only inside a
+ * `node --test` process), write <dir>/paused and block until <dir>/resume
+ * exists, between creating the lock file and writing its content.
+ */
+function pauseForLockTest() {
+  const dir = process.env.GOOD_AGENT_TEST_PAUSE_LOCK;
+  if (!dir || !process.env.NODE_TEST_CONTEXT) return;
+  writeFileSync(join(dir, "paused"), "");
+  for (let i = 0; i < 1500 && !existsSync(join(dir, "resume")); i += 1) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+}
+
+/**
  * One review at a time per reviewer, across repositories. The lock records
  * pid, host and start time, and once the reviewer is running its process
  * group id. A lock is taken over only when its runner pid is dead on this
@@ -206,12 +218,38 @@ export async function acquireLock(root, reviewer, options) {
     if (interrupted) throw new Error(`interrupted by ${interrupted} while waiting for the ${reviewer} lock`);
     try {
       const fd = openSync(path, "wx");
+      // This acquisition's identity: a random token in the content and the
+      // file's inode. A runner paused here, before the content is written, can
+      // be judged "unreadable" and replaced; the token and inode let it find
+      // out instead of acting on a lock that is no longer its own.
+      const token = randomBytes(16).toString("hex");
+      const first = fstatSync(fd);
+      let ino = first.ino;
+      let dev = first.dev;
+      pauseForLockTest();
       const started = new Date().toISOString();
-      writeSync(fd, `${JSON.stringify({ pid: process.pid, host: hostname(), started })}\n`);
+      writeSync(fd, `${JSON.stringify({ pid: process.pid, host: hostname(), started, token })}\n`);
       closeSync(fd);
+      /** Whether the lock file at `path` is still this acquisition's. */
+      const owns = () => {
+        let rfd;
+        try {
+          rfd = openSync(path, "r");
+          const st = fstatSync(rfd);
+          if (st.ino !== ino || st.dev !== dev) return false;
+          return JSON.parse(readFileSync(rfd, "utf8")).token === token;
+        } catch { return false; } finally { if (rfd !== undefined) { try { closeSync(rfd); } catch { /* closed */ } } }
+      };
       return {
-        release: () => { if (readHolder()?.pid === process.pid) { try { unlinkSync(path); } catch { /* already gone */ } } },
-        setChild: (pgid) => { if (readHolder()?.pid === process.pid) writeJson(path, { pid: process.pid, host: hostname(), started, pgid }); },
+        release: () => { if (owns()) { try { unlinkSync(path); } catch { /* already gone */ } } },
+        setChild: (pgid) => {
+          if (!owns()) throw new Error(`the ${reviewer} lock ${path} no longer belongs to this run (another process took it over); the reviewer was not started`);
+          const tmp = `${path}.tmp-${process.pid}`;
+          writeFileSync(tmp, `${JSON.stringify({ pid: process.pid, host: hostname(), started, pgid, token }, null, 2)}\n`);
+          const written = statSync(tmp);
+          renameSync(tmp, path);
+          ino = written.ino; dev = written.dev;
+        },
       };
     } catch (error) {
       if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") throw error;

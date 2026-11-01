@@ -82,7 +82,13 @@ the message names the log).
    another process holds. A lock held on another host is never taken over.
    A takeover goes through an exclusively created guard file and re-reads the lock first, so two
    waiters cannot delete each other's fresh lock. Waiting counts against the
-   timeout; `--no-wait` exits 2 instead.
+   timeout; `--no-wait` exits 2 instead. Each acquisition has an identity, a
+   random token in the lock's content plus the file's inode. A runner paused
+   between creating the lock and writing it can be judged abandoned and
+   replaced; when it resumes, recording the reviewer's group re-opens the lock
+   and checks both, fails the round (`no longer belongs to this run`) without
+   opening the reviewer's start gate, and its release never unlinks a lock
+   that is not its own.
 4. Reserves the round by creating `<id>-<prompt>-rN.meta.json` with the
    exclusive `wx` flag, so concurrent Codex and Claude reviews never share
    a number.
@@ -98,7 +104,10 @@ the message names the log).
    all taken from the top of the working tree (`git rev-parse
    --show-toplevel`) even when the command runs from a subdirectory.
    An empty commit or a staged change therefore moves it even when the
-   status does not. The task file is fingerprinted on its own (real path
+   status does not. The task file is resolved again once the lock is held
+   (a symlink can be retargeted while waiting): its real path, the
+   repo-relative label the prompt names, the review id and the fingerprint all
+   come from that one resolution. It is fingerprinted on its own (real path
    plus content hash, before and after), because the tree digest cannot see
    an ignored file: a task that changed, was retargeted or became unreadable
    during the review is `REVIEW_UNSAFE` even when the tree digest is

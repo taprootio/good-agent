@@ -259,8 +259,16 @@ function trapSignals() {
 function taskFingerprint(path) {
   try {
     const real = realpathSync(path);
-    return createHash("sha256").update(real).update("\0").update(readFileSync(real)).digest("hex");
+    return fingerprintOf(real, readFileSync(real));
   } catch { return null; }
+}
+
+/**
+ * @param {string} real  the task's real path
+ * @param {Buffer} content
+ */
+function fingerprintOf(real, content) {
+  return createHash("sha256").update(real).update("\0").update(content).digest("hex");
 }
 
 /**
@@ -477,22 +485,33 @@ async function review(args, out, err) {
   if (prompt === "diff" && !values.base) throw new ReviewUsageError("--prompt diff requires --base <ref>");
   if (prompt !== "diff" && !values.task) throw new ReviewUsageError(`--prompt ${prompt} requires --task <path>`);
   const taskAbs = values.task ? resolve(root, values.task) : null;
-  if (taskAbs) {
+  const top = realPath(topLevel(root));
+  /**
+   * Resolve the task once and derive everything about it from that single
+   * resolution: its real path, the repo-relative label the prompt uses, the
+   * review id and the fingerprint. The prompt names the task by a repo-relative
+   * path and the digest must be able to vouch for it, so the real path (symlinks
+   * resolved) has to be inside the working tree. Called before the lock (usage
+   * errors are exit 2 and nothing is waited for) and again once the lock is
+   * held, because a symlink can be retargeted while waiting; only the second
+   * resolution is used.
+   */
+  const resolveTask = () => {
+    if (!taskAbs) return { label: null, id: deriveId(root, undefined), fingerprint: null };
     let isFile = false;
     try { isFile = statSync(taskAbs).isFile(); } catch { /* missing */ }
     if (!isFile) throw new ReviewUsageError(`task file not found: ${values.task}`);
-  }
-  // The prompt names the task by a repo-relative path and the digest must be
-  // able to vouch for it, so its real path (symlinks resolved) has to be inside
-  // the working tree.
-  const top = realPath(topLevel(root));
-  const taskReal = taskAbs ? realpathSync(taskAbs) : null;
-  if (taskReal && !isInside(top, taskReal)) {
-    throw new ReviewUsageError(`task file ${values.task} resolves to ${taskReal}, outside the repository at ${top}; the review prompt names it by a repo-relative path`);
-  }
-  if (prompt === "plan" && taskAbs && !/^## Plan\s*$/m.test(readFileSync(taskAbs, "utf8"))) {
-    throw new ReviewUsageError(`${values.task} has no "## Plan" section; the work-task skill writes it before asking for plan review`);
-  }
+    const real = realpathSync(taskAbs);
+    if (!isInside(top, real)) {
+      throw new ReviewUsageError(`task file ${values.task} resolves to ${real}, outside the repository at ${top}; the review prompt names it by a repo-relative path`);
+    }
+    const content = readFileSync(real);
+    if (prompt === "plan" && !/^## Plan\s*$/m.test(content.toString("utf8"))) {
+      throw new ReviewUsageError(`${values.task} has no "## Plan" section; the work-task skill writes it before asking for plan review`);
+    }
+    return { label: relative(top, real).split(sep).join("/"), id: deriveId(root, real), fingerprint: fingerprintOf(real, content) };
+  };
+  resolveTask();
   /** @type {string | null} */
   let baseSha = null;
   if (values.base) {
@@ -523,9 +542,7 @@ async function review(args, out, err) {
   if (isInside(realPath(topLevel(root)), realPath(reviews))) {
     throw new ReviewUsageError(`the reviews directory ${reviews} is inside the repository being reviewed, which would void every round; set GOOD_AGENT_REVIEWS to a directory outside it`);
   }
-  const id = deriveId(root, values.task);
   const promptsDir = values["prompts-dir"] ? resolve(values["prompts-dir"]) : undefined;
-  const taskLabel = taskReal ? relative(top, taskReal).split(sep).join("/") : id;
 
   // From here on the reviewer's own CLI is involved.
   const deadline = Date.now() + timeoutMinutes * 60_000;
@@ -541,6 +558,9 @@ async function review(args, out, err) {
   let retainLock = false;
   try {
     lock = await acquireLock(reviews, reviewer, { wait: !values["no-wait"], deadline, aborted: () => trap.signal });
+    const subject = resolveTask();
+    const id = subject.id;
+    const taskLabel = subject.label ?? id;
     const dir = join(reviews, repoSlug(root));
     const meta = {
       version: VERSION, reviewer, author: values.author ?? null, model: model ?? null, effort, cli: cliVersion, root,
@@ -556,7 +576,7 @@ async function review(args, out, err) {
     /** @type {string | null} */
     let digestAfter = null;
     /** @type {string | null} */
-    let taskBefore = null;
+    let taskBefore = subject.fingerprint;
     /** @type {string | null} */
     let taskAfter = null;
     /** @type {{ status: number | null, timedOut: boolean }} */
@@ -574,10 +594,6 @@ async function review(args, out, err) {
     };
     try {
       digestBefore = treeDigest(root);
-      if (taskAbs) {
-        taskBefore = taskFingerprint(taskAbs);
-        if (taskBefore === null) return fail("REVIEW_ERROR", `the task file ${values.task} cannot be read`);
-      }
       if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
       if (Date.now() >= deadline) return fail("REVIEW_ERROR", BUDGET_EXHAUSTED);
       const promptText = buildPrompt({ prompt, root, taskLabel, baseSha, author: values.author, verified: values.verified, prior, promptsDir });
