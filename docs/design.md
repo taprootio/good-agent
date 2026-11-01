@@ -1,7 +1,8 @@
 # good-agent design
 
-Status: draft for review. Nothing here is implemented yet.
-Date of all document checks below: 2026-11-01.
+Status: the design of record. Sections 2 to 7, 9 and 12 are implemented
+(GA0001 to GA0004); section 8's release flow is GA0005. Date of all
+document checks below: 2026-11-01.
 
 `good-agent` keeps AI tool instruction files DRY and
 inside what the tools actually load. It ships a **guard** (a CLI check for

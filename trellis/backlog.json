@@ -8,26 +8,11 @@
   ],
   "nextId": "GA0008",
   "counts": {
-    "active": 4,
-    "completed": 3,
+    "active": 3,
+    "completed": 4,
     "removed": 0
   },
   "tasks": [
-    {
-      "id": "GA0004",
-      "title": "Build `good-agent review`, the fresh read-only external reviewer",
-      "status": "active",
-      "milestone": "Alpha",
-      "priority": "High",
-      "effort": 8,
-      "depends_on": [
-        "GA0001",
-        "GA0003"
-      ],
-      "owner": "je",
-      "collaborators": [],
-      "summary": "A runner that spawns a fresh, read-only Codex or Claude Code review of a story, plan, design or diff, validates the findings against the schema, records digests and rounds, and returns the JSON, replacing Taproot's mailbox-and-watcher exchange."
-    },
     {
       "id": "GA0005",
       "title": "Claim the npm names and set up the release workflow",
@@ -117,6 +102,22 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Capture Taproot's story-writing and task-working loops as universal good-agent playbooks (shipped as skills) with a shared review-loop section covering internal review until clean and external review by the other AI tool until clean.",
+      "completed_on": "2026-11-01"
+    },
+    {
+      "id": "GA0004",
+      "title": "Build `good-agent review`, the fresh read-only external reviewer",
+      "status": "completed",
+      "milestone": "Alpha",
+      "priority": "High",
+      "effort": 8,
+      "depends_on": [
+        "GA0001",
+        "GA0003"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "A runner that spawns a fresh, read-only Codex or Claude Code review of a story, plan, design or diff, validates the findings against the schema, records digests and rounds, and returns the JSON, replacing Taproot's mailbox-and-watcher exchange.",
       "completed_on": "2026-11-01"
     }
   ]

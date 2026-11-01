@@ -11,7 +11,6 @@ generated; do not hand-edit between the markers — edit the per-item files in
 
 | ID | Title | Owner | Priority | Effort |
 | --- | --- | --- | --- | --- |
-| [GA0004](active/GA0004.md) | Build `good-agent review`, the fresh read-only external reviewer | je | High | 8 |
 | [GA0005](active/GA0005.md) | Claim the npm names and set up the release workflow | je | Medium | 2 |
 
 ### Beta
