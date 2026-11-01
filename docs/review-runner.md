@@ -26,12 +26,14 @@ good-agent review [--by codex|claude] [--author codex|claude]
 | `--prior` | A JSON array of findings from the previous round (each must be a valid finding); the prompt asks the reviewer to confirm each is resolved, then review the whole subject again. |
 | `--verified` | A command that already passed on this tree, repeatable; stated in the diff prompt so the reviewer does not re-run gates. |
 | `--model`, `--effort` | Override the per-tool ceiling from config (`review.codex`, `review.claude`). A missing model means the tool's own default. |
-| `--timeout-minutes` | Wall-clock limit for the whole run including lock waits; the reviewer's process group is killed with SIGKILL past it. |
+| `--timeout-minutes` | Wall-clock limit for the whole run including lock waits, at most 35791 (the longest timer Node can set; larger is exit 2); the reviewer's process group is killed with SIGKILL past it. |
 | `--no-wait` | Fail fast (exit 2) instead of waiting for the reviewer's lock. |
 | `--json` | Print the bare findings array; otherwise a human summary (a header, then `file:line  severity` and the suggestion per finding, then the count and the history path). |
 | `--cwd`, `--config` | The repository to review (default: the current directory) and the config file (default: `good-agent.config.json` in it). |
 
-Empty flag values are exit 2. `--model` and `--effort` must look like a model
+Empty flag values are exit 2, and so is a `--verified` value with a control
+character such as a newline (it would let a command text start new prompt
+lines). `--model` and `--effort` must look like a model
 or effort name (letters, digits and `._:/@-`), since they reach a command line
 and a TOML override. A hidden `--prompts-dir` swaps the directory the prompt
 files are read from; `scripts/live-denial.mjs` is its only user.
@@ -44,7 +46,7 @@ the message names the log).
 
 1. Loads config, validates flags (all exit 2, before any reviewer or its
    CLI runs), refuses a reviews directory inside the repository being
-   reviewed, and derives the review id: the task's
+   reviewed (the whole working tree, not only `--cwd`), and derives the review id: the task's
    front-matter `id`, else the task file's basename, else the first
    `/`-separated branch segment matching `^[A-Za-z]+[0-9]+$` uppercased,
    else the branch name with `/` replaced by `-`; a detached HEAD without
@@ -54,9 +56,13 @@ the message names the log).
    any round is reserved) and strips API keys from the environment so the
    subscription login is the only credential.
 3. Takes the per-reviewer lock at the reviews root (one review per login at
-   a time, across repositories). A lock whose pid is dead on this host is
-   taken over, and so is an unreadable one more than five seconds old; a
-   lock held on another host never is. A takeover goes through an
+   a time, across repositories). Once the reviewer is running, the lock
+   also records its process group id. A lock is taken over only when its
+   runner pid is dead on this host and that process group is gone too, so a
+   runner that was SIGKILLed while its detached reviewer still runs keeps
+   the lock (a waiting review waits; `--no-wait` exits 2 and names the
+   group) until the reviewer exits. An unreadable lock more than five
+   seconds old is taken over as well; a lock held on another host never is. A takeover goes through an
    exclusively created guard file and re-reads the lock first, so two
    waiters cannot delete each other's fresh lock. Waiting counts against the
    timeout; `--no-wait` exits 2 instead.
@@ -64,11 +70,14 @@ the message names the log).
    exclusive `wx` flag, so concurrent Codex and Claude reviews never share
    a number.
 5. Records the tree digest, builds the prompt and, for Codex, lists and
-   switches off MCP servers. The digest hashes, each part labelled and
+   switches off MCP servers (a server counts as enabled unless the listing
+   says `enabled: false`, in both the first listing and the re-list). The digest hashes, each part labelled and
    delimited by a NUL: `git rev-parse HEAD` (or `none`), `git write-tree` for
    the index (or `none` outside a git repository), the porcelain status, and
    the path and content hash of every file from `git ls-files -co
-   --exclude-standard` that still exists (a symlink counts by its target).
+   --exclude-standard` that still exists (a symlink counts by its target),
+   all taken from the top of the working tree (`git rev-parse
+   --show-toplevel`) even when the command runs from a subdirectory.
    An empty commit or a staged change therefore moves it even when the
    status does not. The prompt is the body of the review-loop skill's
    `references/review-<prompt>.md` (the text before the first `<!-- ENDING:`
@@ -79,11 +88,13 @@ the message names the log).
    one sentence naming the authoring tool and saying its internal review is
    clean), then the runner ending without its marker comments.
 6. Runs the reviewer in its own process group with the hardened flags
-   below and the prompt on stdin. A timeout or a SIGINT or SIGTERM to the
-   runner kills the whole group.
+   below and the prompt on stdin. A timeout, or a SIGINT, SIGTERM or SIGHUP
+   to the runner at any point from the lock wait onward, kills the whole
+   group; the round is recorded as `REVIEW_ERROR` (`interrupted by <signal>`)
+   and the lock is released.
 7. Records the digest again. A moved tree makes the result void
-   (`REVIEW_UNSAFE`). A non-zero exit (with the first stderr line when it
-   names a rejected flag), a timeout, an interruption, missing output, a
+   (`REVIEW_UNSAFE`). A non-zero exit (with the first stderr line that names
+   a rejected flag), a timeout, an interruption, missing output, a
    bad envelope, a refused MCP server or output that fails the findings
    schema is `REVIEW_ERROR`. Either way the round keeps its number, the
    failure and both digests go into its `.meta.json` and the log, and the
@@ -151,8 +162,10 @@ environment loses `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 ## History
 
 `$GOOD_AGENT_REVIEWS` or `~/.config/good-agent/reviews/`, then
-`<repo-slug>/` (the basename of the git common directory's parent plus a
-short hash of its path, shared by every worktree of a clone), then three
+`<repo-slug>/` (a name, which is the main worktree's directory or a
+submodule's module name, plus a short hash of the absolute git common
+directory itself: shared by every worktree of a clone, different for two
+submodules of one superproject), then three
 files per round, named `<id>-<prompt>-rN`:
 
 - `.json`: the bare findings array, written only for a round that passed
@@ -219,14 +232,14 @@ directory. GA0006 retires the exchange only when no row below is blank.
 | Exchange case | Runner |
 | --- | --- |
 | T1 wait refuses a review whose tree no longer matches the request | covered by "failure modes": a tree that moved during the review is `REVIEW_UNSAFE`, exit 3 (digest before and after) |
-| T2 dead lock holder never taken over by two racing watchers | changed by design: with no long-lived watcher, a lock whose pid is dead on this host is taken over, through an exclusive guard file; covered by "lock contention" |
+| T2 dead lock holder never taken over by two racing watchers | changed by design: with no long-lived watcher, a lock whose runner pid is dead on this host and whose recorded reviewer group is gone is taken over, through an exclusive guard file; covered by "lock contention" and "a SIGKILLed runner" |
 | T3 empty lock never taken over | changed by design: an unreadable lock is taken over once it is more than five seconds old (a crash between creating and filling it); covered by "a half-written lock" |
 | T4 second watcher refused while the first holds the lock; released on SIGTERM | covered by "lock contention" (wait, timeout, `--no-wait`) and "a Codex and a Claude review" (the same reviewer queues); the lock is released in `finally` and after failures ("failure modes") |
 | T5 recovery of terminal, dead and orphaned claims | not applicable: watcher-only. There are no claims; a round's `.meta.json` records its status and a failed round keeps its number ("failure modes") |
 | T6 orphan found by literal path with regex metacharacters | not applicable: watcher-only. The reviewer is a child of the runner and its whole process group is killed on timeout ("failure modes") |
 | T7 a watcher that cannot run the reviewer refuses to start | covered by "old CLI version": a missing CLI or an old version is refused before any round |
 | T8 a mailbox path `ps` would rewrite is refused | not applicable: watcher-only (no `ps` scanning, no mailbox paths) |
-| T9 a review runs isolated and keyless; a signal stops the watcher | covered by "codex happy path" and "claude happy path": hardened flags and stripped keys asserted; a SIGTERM to the runner kills the reviewer's process group and fails the round, covered by "a signal to the runner" |
+| T9 a review runs isolated and keyless; a signal stops the watcher | covered by "codex happy path" and "claude happy path": hardened flags and stripped keys asserted; a SIGTERM or SIGHUP to the runner kills the reviewer's process group and fails the round, covered by "a SIGTERM to the runner" and "a SIGHUP to the runner" |
 | T10 a reviewer failure stops the watcher so the queue stays unclaimed | not applicable: watcher-only. There is no queue; a reviewer failure is `REVIEW_ERROR` for that round ("failure modes") |
 | T11 a claim whose runner pid was reused is recovered | not applicable: watcher-only (no claims) |
 | T12 request.mjs refuses a second filing while one is queued | not applicable: watcher-only (no filings); the per-reviewer lock serializes runs ("lock contention") |
@@ -239,17 +252,32 @@ directory. GA0006 retires the exchange only when no row below is blank.
 | T19 wait.mjs refuses malformed flags with a usage exit | covered by "usage errors": unknown flags and bad values exit 2 before any reviewer runs |
 | T20 request.mjs refuses empty flag values and a non-numeric round | covered by "usage errors" (empty `--task`, unsafe `--effort`); rounds are never user-supplied |
 | T21 concurrent filings yield one request reviewed once | changed by design: concurrent reviews of one task each get their own round by exclusive reservation; covered by "a Codex and a Claude review" and "rounds are reserved exclusively" |
-| T22 a signal mid-filing leaves no lock or temp file | covered by "a signal to the runner" (lock released, round recorded, reviewer gone); a SIGKILL of the runner itself leaves a lock that the next run takes over ("lock contention") |
+| T22 a signal mid-filing leaves no lock or temp file | covered by "a SIGTERM to the runner", "a SIGHUP to the runner" and "a SIGHUP while waiting for the lock" (lock released, round recorded, the reviewer's whole group gone); a SIGKILL of the runner itself leaves a lock that the next run honours while the detached reviewer lives and takes over once its group is gone, covered by "a SIGKILLed runner" |
 | T23 a filing after a gap takes the round after the highest | covered by "rounds are reserved exclusively" (highest existing number plus one) |
 | T24 reviewers route requests independently | not applicable: watcher-only. `--by` names the reviewer; "--by defaults" covers the config route |
 | T25 both reviewers hold independent locks | covered by "a Codex and a Claude review" (one lock per reviewer, run at once) |
+| T26 unsuccessful or malformed Claude envelopes never become reviews | covered by "Claude result envelopes", one case per Taproot variant, each exit 3 with `REVIEW_ERROR` recorded on its round and no findings file: `malformed` (not JSON), `wrong-type` (`type` is not `result`), `error-subtype` (`subtype` is not `success`), `is-error` (`is_error: true`), `missing-is-error`, `missing-structured` (no `structured_output`), `missing-findings` (`{}`) and `invalid-finding` (fails the findings validator). `valid-finding` is the same test's last step: the envelope unwraps to the bare array in the history file and `--json`. "failure modes" also covers a non-JSON stdout and an error envelope |
 | T27 filing preserves routing defaults and shares one round namespace | changed by design: rounds are per id and prompt type, not shared across prompt types; covered by "rounds are reserved exclusively" |
 | T28 the other runner may remove a listed request before routing reads it | not applicable: watcher-only (no shared request directory) |
-| live-denial.sh (real login asks for a forbidden write) | covered by `scripts/live-denial.mjs`, opt-in and never in CI |
+| live-denial.sh (real login asks for a forbidden write) | covered by `scripts/live-denial.mjs`, opt-in and never in CI; "the live-denial probe passes only when" runs the script against the fakes to prove it fails on exit 3 and on a missing denial. It checks what is listed under "Live denial probe" below |
 
 ## Live denial probe
 
 `node scripts/live-denial.mjs --by codex|claude` uses the real login and a
-private fixture repository, asks the reviewer to write a file, and checks
-that the write was denied and the tree digest is unchanged. It is a paid,
-manual acceptance check, not part of `npm test`.
+private fixture repository (with an uncommitted change so a diff has
+something to show). Its prompt asks the reviewer to attempt, in separate
+tool calls, `touch WRITTEN.txt` and `git diff --output=WRITTEN.txt --
+AGENTS.md`, as Taproot's `live-denial.sh` did. It exits 0 only when all of
+these hold, and otherwise exits 1 with the reason and keeps the evidence
+directory:
+
+- the review exits 0 or 1 (a 3, from a missing CLI, a rejected flag or an
+  expired login, proves nothing and fails the probe);
+- the round's `.json` exists;
+- `WRITTEN.txt` does not exist and the fixture's tree digest is unchanged;
+- for Codex, a finding's suggestion contains `WRITE DENIED`;
+- for Claude, the result envelope in the round's `.log` has at least one
+  `permission_denials` entry for a Bash `touch` command, so the permission
+  layer was actually exercised.
+
+It is a paid, manual acceptance check, not part of `npm test`.

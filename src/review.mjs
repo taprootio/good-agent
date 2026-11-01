@@ -14,7 +14,7 @@ import { parseArgs } from "node:util";
 import { ConfigError, loadConfig } from "./config.mjs";
 import { RULE_IDS } from "./rules/index.mjs";
 import { VERSION } from "./engine.mjs";
-import { ReviewUsageError, acquireLock, deriveId, git, repoSlug, reserveRound, reviewsRoot, treeDigest, writeJson } from "./review-store.mjs";
+import { ReviewUsageError, acquireLock, deriveId, git, repoSlug, reserveRound, reviewsRoot, topLevel, treeDigest, writeJson } from "./review-store.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const PROMPTS_DIR = join(here, "..", "skill", "review-loop", "references");
@@ -114,8 +114,9 @@ export function buildPrompt(p) {
   const head = git(p.root, ["rev-parse", "HEAD"]) ?? "(not a git repository)";
   let changed = "(no base given)";
   if (p.baseSha) {
-    const status = git(p.root, ["diff", "--name-status", p.baseSha]) ?? "";
-    const untracked = (git(p.root, ["ls-files", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean).map((f) => `?\t${f}`);
+    const top = topLevel(p.root);
+    const status = git(top, ["diff", "--name-status", p.baseSha]) ?? "";
+    const untracked = (git(top, ["ls-files", "--others", "--exclude-standard"]) ?? "").split("\n").filter(Boolean).map((f) => `?\t${f}`);
     changed = [status, ...untracked].filter(Boolean).join("\n") || "(none)";
   }
   const authorContext = p.author
@@ -180,7 +181,8 @@ function checkVersion(reviewer, env) {
  * The `-c` overrides that keep a Codex review inside the sandbox: features
  * off, and every MCP server Codex would load switched off by name and
  * re-listed to confirm. Listed from the reviewed tree, so a project
- * `.codex/config.toml` is seen.
+ * `.codex/config.toml` is seen. It fails closed: a server counts as enabled
+ * unless the listing says `enabled: false`, in both listings.
  * @param {string} root
  * @param {Env} env
  */
@@ -195,26 +197,47 @@ export function codexIsolation(root, env) {
     return /** @type {{ name?: unknown, enabled?: unknown }[]} */ (servers);
   };
   for (const s of list(overrides)) {
-    if (!s?.enabled) continue;
-    if (typeof s.name !== "string" || !/^[A-Za-z0-9_-]+$/.test(s.name)) throw new Error(`MCP server ${JSON.stringify(s?.name)} cannot be switched off by a -c override; rename or remove it in the Codex config`);
+    if (s?.enabled === false) continue;
+    if (typeof s?.name !== "string" || !/^[A-Za-z0-9_-]+$/.test(s.name)) throw new Error(`MCP server ${JSON.stringify(s?.name)} cannot be switched off by a -c override; rename or remove it in the Codex config`);
     overrides.push("-c", `mcp_servers.${s.name}.enabled=false`);
   }
-  const still = list(overrides).filter((s) => s?.enabled).map((s) => String(s.name));
+  const still = list(overrides).filter((s) => s?.enabled !== false).map((s) => String(s?.name));
   if (still.length) throw new Error(`MCP servers still enabled for a review: ${still.join(", ")}`);
   return overrides;
 }
 
 /**
+ * Catches SIGINT, SIGTERM and SIGHUP from lock acquisition until the review
+ * is over, so every exit path kills the reviewer's process group, records
+ * the round and releases the lock instead of dying with the lock held.
+ * @returns {{ signal: string | null, kill: (() => void) | null, dispose: () => void }}
+ */
+function trapSignals() {
+  const names = /** @type {const} */ (["SIGINT", "SIGTERM", "SIGHUP"]);
+  const trap = {
+    signal: /** @type {string | null} */ (null),
+    kill: /** @type {(() => void) | null} */ (null),
+    dispose: () => { for (const n of names) process.off(n, handler); },
+  };
+  /** @param {string} name */
+  function handler(name) { trap.signal ??= name; trap.kill?.(); }
+  for (const n of names) process.on(n, handler);
+  return trap;
+}
+
+/**
  * Run the reviewer in its own process group so a timeout or a signal kills
- * everything it started, not only the direct child.
+ * everything it started, not only the direct child. `onSpawn` receives the
+ * group id (the child's pid) as soon as the child exists.
  * @param {string} command
  * @param {string[]} argv
- * @param {{ cwd: string, env: Env, input: string, timeoutMs: number }} o
+ * @param {{ cwd: string, env: Env, input: string, timeoutMs: number, trap: ReturnType<typeof trapSignals>, onSpawn: (pgid: number) => void }} o
  * @returns {Promise<{ status: number | null, signal: string | null, stdout: string, stderr: string, error: Error | null, timedOut: boolean, interrupted: string | null }>}
  */
 function runChild(command, argv, o) {
   return new Promise((done) => {
     const result = { status: /** @type {number | null} */ (null), signal: /** @type {string | null} */ (null), stdout: "", stderr: "", error: /** @type {Error | null} */ (null), timedOut: false, interrupted: /** @type {string | null} */ (null) };
+    if (o.trap.signal) { result.interrupted = o.trap.signal; done(result); return; }
     /** @type {import("node:child_process").ChildProcess} */
     let child;
     try {
@@ -230,13 +253,14 @@ function runChild(command, argv, o) {
       if (finished) return;
       finished = true;
       clearTimeout(timer); if (grace) clearTimeout(grace);
-      process.off("SIGINT", onSignal); process.off("SIGTERM", onSignal);
+      o.trap.kill = null;
+      result.interrupted = o.trap.signal;
       done(result);
     };
     const timer = setTimeout(() => { result.timedOut = true; killGroup(); }, o.timeoutMs);
-    /** @param {string} signal */
-    const onSignal = (signal) => { result.interrupted = signal; killGroup(); };
-    process.on("SIGINT", onSignal); process.on("SIGTERM", onSignal);
+    o.trap.kill = killGroup;
+    if (child.pid) o.onSpawn(child.pid);
+    if (o.trap.signal) killGroup();
     child.stdout?.setEncoding("utf8"); child.stderr?.setEncoding("utf8");
     child.stdout?.on("data", (d) => { result.stdout += d; });
     child.stderr?.on("data", (d) => { result.stderr += d; });
@@ -260,6 +284,9 @@ function realPath(path) {
     return parent === path ? path : join(realPath(parent), basename(path));
   }
 }
+
+/** 35791 minutes is the largest whole number that fits setTimeout's 2^31-1 milliseconds. */
+export const MAX_TIMEOUT_MINUTES = 35791;
 
 const FLAG_REJECTED = /unexpected argument|unknown option|unrecognized (option|argument)|invalid value|unknown flag|missing required/i;
 
@@ -335,6 +362,10 @@ async function review(args, out, err) {
   }
   const timeoutMinutes = Number(values["timeout-minutes"]);
   if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) throw new ReviewUsageError("--timeout-minutes must be a positive number");
+  if (timeoutMinutes > MAX_TIMEOUT_MINUTES) throw new ReviewUsageError(`--timeout-minutes must be at most ${MAX_TIMEOUT_MINUTES} (the longest timer Node can set)`);
+  for (const v of values.verified) {
+    if (/[\u0000-\u001f\u007f]/.test(v)) throw new ReviewUsageError("--verified must not contain control characters such as a newline; pass one command per --verified");
+  }
   /** @type {Finding[] | null} */
   let prior = null;
   if (values.prior) {
@@ -350,7 +381,7 @@ async function review(args, out, err) {
     if (value !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/.test(value)) throw new ReviewUsageError(`${flag} "${value}" contains characters a model or effort name does not use`);
   }
   const reviews = reviewsRoot();
-  const fromRoot = relative(realPath(root), realPath(reviews));
+  const fromRoot = relative(realPath(topLevel(root)), realPath(reviews));
   if (!fromRoot.startsWith("..") && !isAbsolute(fromRoot)) {
     throw new ReviewUsageError(`the reviews directory ${reviews} is inside the repository being reviewed, which would void every round; set GOOD_AGENT_REVIEWS to a directory outside it`);
   }
@@ -362,10 +393,13 @@ async function review(args, out, err) {
   const env = reviewEnvironment(reviewer);
   const cliVersion = checkVersion(reviewer, env);
   const deadline = Date.now() + timeoutMinutes * 60_000;
-  const release = await acquireLock(reviews, reviewer, { wait: !values["no-wait"], deadline });
+  const trap = trapSignals();
+  /** @type {Awaited<ReturnType<typeof acquireLock>> | null} */
+  let lock = null;
   /** @type {string | null} */
   let tmp = null;
   try {
+    lock = await acquireLock(reviews, reviewer, { wait: !values["no-wait"], deadline, aborted: () => trap.signal });
     const dir = join(reviews, repoSlug(root));
     const meta = {
       version: VERSION, reviewer, author: values.author ?? null, model: model ?? null, effort, cli: cliVersion, root,
@@ -395,6 +429,7 @@ async function review(args, out, err) {
     };
     try {
       digestBefore = treeDigest(root);
+      if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
       const promptText = buildPrompt({ prompt, root, taskLabel, baseSha, author: values.author, verified: values.verified, prior, promptsDir });
       tmp = mkdtempSync(join(tmpdir(), "good-agent-review-"));
       const outFile = join(tmp, "codex-output-attempt1.json");
@@ -414,7 +449,8 @@ async function review(args, out, err) {
           "--safe-mode", "--setting-sources", "", "--settings", settings, "--permission-mode", "dontAsk", "--tools", "Read", "Grep", "Glob", "Bash",
           "--allowedTools", ...CLAUDE_ALLOWED, "--disallowedTools", ...CLAUDE_DENIED, "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--no-chrome", "--disable-slash-commands"];
       }
-      const result = await runChild(reviewer, argv, { cwd: root, env, input: promptText, timeoutMs: Math.max(1000, deadline - Date.now()) });
+      if (trap.signal) return fail("REVIEW_ERROR", `interrupted by ${trap.signal} before the reviewer started`);
+      const result = await runChild(reviewer, argv, { cwd: root, env, input: promptText, timeoutMs: Math.max(1000, deadline - Date.now()), trap, onSpawn: (pgid) => lock?.setChild(pgid) });
       digestAfter = treeDigest(root);
       ran = { status: result.status, timedOut: result.timedOut };
       logText = `$ ${reviewer} ${argv.map((a) => (a === "" || /\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}\n\n--- prompt ---\n${promptText}\n--- stdout ---\n${result.stdout}\n--- stderr ---\n${result.stderr}\n`;
@@ -423,7 +459,8 @@ async function review(args, out, err) {
       if (result.timedOut) return fail("REVIEW_ERROR", `${reviewer} exceeded ${timeoutMinutes} minutes and was killed`);
       if (result.error) return fail("REVIEW_ERROR", `${reviewer} could not be started: ${result.error.message}`);
       if (result.status !== 0) {
-        const rejected = FLAG_REJECTED.test(result.stderr) ? ` (a flag was rejected: ${result.stderr.trim().split("\n")[0]})` : "";
+        const rejectedLine = result.stderr.split("\n").find((l) => FLAG_REJECTED.test(l));
+        const rejected = rejectedLine ? ` (a flag was rejected: ${rejectedLine.trim()})` : "";
         return fail("REVIEW_ERROR", `${reviewer} exited ${result.status ?? `on ${result.signal}`}${rejected}`);
       }
       /** @type {unknown} */
@@ -455,7 +492,8 @@ async function review(args, out, err) {
       return fail("REVIEW_ERROR", error instanceof Error ? error.message : String(error));
     }
   } finally {
-    release();
+    lock?.release();
+    trap.dispose();
     if (tmp) rmSync(tmp, { recursive: true, force: true });
   }
 }

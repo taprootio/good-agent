@@ -32,7 +32,7 @@ one JSON array. The loop ends when that array is empty.
 ### Building a prompt
 
 The body is the text of the prompt file before the first `<!-- ENDING:`
-marker. Fill `{{TASK}}` (the story path), `{{BASE}}` and `{{HEAD}}` (the
+marker, without the file's leading `# ` title line. Fill `{{TASK}}` (the story path), `{{BASE}}` and `{{HEAD}}` (the
 commits), `{{VERIFIED}}` (the commands already run), `{{CHANGED}}`
 (`git diff --name-status` against the base plus untracked files),
 `{{PRIOR}}` (the previous round's findings, or empty), `{{BASE_CLAUSE}}`

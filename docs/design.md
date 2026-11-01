@@ -900,9 +900,10 @@ repo can link to.
    keeps its number, records the failure in its `.meta.json`, and does not
    count toward the cap.
    The reviews directory is keyed by the repository, not the worktree:
-   `<repo-slug>` is the basename of the git common directory's parent plus a
-   short hash of its absolute path, so every worktree of one clone shares a
-   history. The per-reviewer lock lives at the reviews root, so two reviews
+   `<repo-slug>` is a name (the main worktree's directory, or the module name
+   for a submodule) plus a short hash of the absolute git common directory
+   itself, so every worktree of one clone shares a history and two
+   submodules of one superproject do not. The per-reviewer lock lives at the reviews root, so two reviews
    by the same reviewer never run at once, even across repositories. Review exit codes:
    0 clean, 1 findings, 2 usage or config, 3 unsafe or reviewer failure.
    [review-runner.md](review-runner.md) has the flag reference, the hardened

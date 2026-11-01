@@ -42,16 +42,38 @@ function gitRaw(root, args) {
 }
 
 /**
- * The repository slug: the basename of the git common directory's parent
- * plus a short hash of its absolute path, so every worktree of one clone
- * shares a history. A directory that is not a git repository uses its own
- * path.
+ * The top of the working tree that contains `root` (`git rev-parse
+ * --show-toplevel`), or `root` itself outside a git repository. Digests and
+ * the reviews-inside-the-tree check use it, so running from a subdirectory
+ * does not shrink what they cover.
+ * @param {string} root
+ */
+export function topLevel(root) {
+  return git(root, ["rev-parse", "--show-toplevel"]) || resolve(root);
+}
+
+/**
+ * The repository slug: a readable name plus a short hash of the absolute git
+ * common directory itself, so every worktree of one clone shares a history
+ * and two submodules of one superproject (whose common directories sit side
+ * by side under `.git/modules/`) do not. The name is the main worktree's
+ * directory for a normal clone, the module name for a submodule and the
+ * directory name for a bare repository. A directory that is not a git
+ * repository uses its own path for both.
  * @param {string} root
  */
 export function repoSlug(root) {
   const common = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  const base = common ? dirname(common) : resolve(root);
-  return `${basename(base).replace(/[^A-Za-z0-9._-]/g, "-")}-${createHash("sha256").update(base).digest("hex").slice(0, 8)}`;
+  let key = resolve(root);
+  let name = basename(key);
+  if (common) {
+    key = common;
+    const submodule = /[\\/]\.git[\\/]modules[\\/](.+)$/.exec(common);
+    if (basename(common) === ".git") name = basename(dirname(common));
+    else if (submodule) name = submodule[1];
+    else name = basename(common).replace(/\.git$/, "");
+  }
+  return `${name.replace(/[^A-Za-z0-9._-]/g, "-")}-${createHash("sha256").update(key).digest("hex").slice(0, 8)}`;
 }
 
 /**
@@ -118,35 +140,55 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (error) { return /** @type {NodeJS.ErrnoException} */ (error).code === "EPERM"; }
 }
 
+/** @param {number} pgid  a process group id */
+function groupAlive(pgid) {
+  if (process.platform === "win32") return false;
+  try { process.kill(-pgid, 0); return true; } catch (error) { return /** @type {NodeJS.ErrnoException} */ (error).code === "EPERM"; }
+}
+
 /**
  * One review at a time per reviewer, across repositories. The lock records
- * pid, host and start time; a lock whose pid is not alive on this host is
- * taken over, and so is an unreadable one that is more than a few seconds
- * old (a crash between creating and filling it). A takeover goes through a
- * guard file created exclusively and re-reads the lock first, so two
- * waiters never delete a lock the other has just taken. Waiting counts
- * against the caller's timeout.
+ * pid, host and start time, and once the reviewer is running its process
+ * group id. A lock is taken over only when its runner pid is dead on this
+ * host and its reviewer's process group, if any, is gone too: a runner that
+ * was SIGKILLed leaves its detached reviewer running, and a second review
+ * must not start beside it. An unreadable lock more than a few seconds old
+ * (a crash between creating and filling it) is taken over as well. A
+ * takeover goes through a guard file created exclusively and re-reads the
+ * lock first, so two waiters never delete a lock the other has just taken.
+ * Waiting counts against the caller's timeout, and `aborted` (a signal
+ * trap) ends the wait.
  * @param {string} root  the reviews root
  * @param {string} reviewer
- * @param {{ wait: boolean, deadline: number }} options
- * @returns {Promise<() => void>}  release
+ * @param {{ wait: boolean, deadline: number, aborted?: () => string | null }} options
+ * @returns {Promise<{ release: () => void, setChild: (pgid: number) => void }>}
  */
 export async function acquireLock(root, reviewer, options) {
   mkdirSync(root, { recursive: true });
   const path = join(root, `${reviewer}.lock`);
   const guard = `${path}.takeover`;
-  /** @returns {{ pid?: number, host?: string, started?: string } | null} */
+  /** @returns {{ pid?: number, host?: string, started?: string, pgid?: number } | null} */
   const readHolder = () => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; } };
   /** @param {string} file */
   const ageMs = (file) => { try { return Date.now() - statSync(file).mtimeMs; } catch { return 0; } };
   /** @param {ReturnType<typeof readHolder>} holder */
-  const stale = (holder) => holder === null ? ageMs(path) > 5000 : holder.host === hostname() && typeof holder.pid === "number" && !pidAlive(holder.pid);
+  const stale = (holder) => holder === null
+    ? ageMs(path) > 5000
+    : holder.host === hostname() && typeof holder.pid === "number" && !pidAlive(holder.pid) && !(typeof holder.pgid === "number" && groupAlive(holder.pgid));
+  /** @param {NonNullable<ReturnType<typeof readHolder>>} holder */
+  const describe = (holder) => `pid ${holder.pid} on ${holder.host}${typeof holder.pgid === "number" ? `, whose reviewer process group ${holder.pgid} may still be running` : ""}`;
   for (;;) {
+    const interrupted = options.aborted?.();
+    if (interrupted) throw new Error(`interrupted by ${interrupted} while waiting for the ${reviewer} lock`);
     try {
       const fd = openSync(path, "wx");
-      writeSync(fd, `${JSON.stringify({ pid: process.pid, host: hostname(), started: new Date().toISOString() })}\n`);
+      const started = new Date().toISOString();
+      writeSync(fd, `${JSON.stringify({ pid: process.pid, host: hostname(), started })}\n`);
       closeSync(fd);
-      return () => { if (readHolder()?.pid === process.pid) { try { unlinkSync(path); } catch { /* already gone */ } } };
+      return {
+        release: () => { if (readHolder()?.pid === process.pid) { try { unlinkSync(path); } catch { /* already gone */ } } },
+        setChild: (pgid) => { if (readHolder()?.pid === process.pid) writeJson(path, { pid: process.pid, host: hostname(), started, pgid }); },
+      };
     } catch (error) {
       if (/** @type {NodeJS.ErrnoException} */ (error).code !== "EEXIST") throw error;
     }
@@ -166,8 +208,8 @@ export async function acquireLock(root, reviewer, options) {
       continue;
     }
     if (holder === null) { await new Promise((r) => setTimeout(r, 100)); continue; }
-    if (!options.wait) throw new ReviewUsageError(`another ${reviewer} review is running (pid ${holder.pid} on ${holder.host}); wait for it or pass --no-wait to fail fast`);
-    if (Date.now() > options.deadline) throw new Error(`timed out waiting for the ${reviewer} lock held by pid ${holder.pid} on ${holder.host}`);
+    if (!options.wait) throw new ReviewUsageError(`another ${reviewer} review is running (${describe(holder)}); wait for it or pass --no-wait to fail fast`);
+    if (Date.now() > options.deadline) throw new Error(`timed out waiting for the ${reviewer} lock held by ${describe(holder)}`);
     await new Promise((r) => setTimeout(r, 1000));
   }
 }
@@ -199,10 +241,12 @@ function writeTree(root) {
  * so an empty commit or a staged change that leaves the status unchanged
  * still voids a round; the status part covers deletions and the content part
  * covers edits and additions. A symlink contributes its target path, not the
- * content it points at.
- * @param {string} root
+ * content it points at. Everything is computed from the top of the working
+ * tree (`git rev-parse --show-toplevel`), whatever directory is passed.
+ * @param {string} dir
  */
-export function treeDigest(root) {
+export function treeDigest(dir) {
+  const root = topLevel(dir);
   const hash = createHash("sha256");
   /** @param {string} label @param {string | Buffer} value */
   const part = (label, value) => { hash.update(label); hash.update("\0"); hash.update(value); hash.update("\0"); };

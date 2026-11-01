@@ -5,12 +5,16 @@
 EMPTY='{"findings":[]}'
 if [ -n "$FAKE_RECORD" ]; then
   printf 'ARGV:%s\n' "$*" >> "$FAKE_RECORD"
-  printf 'ENV:ANTHROPIC_API_KEY=%s CWD=%s\n' "${ANTHROPIC_API_KEY-unset}" "$(pwd)" >> "$FAKE_RECORD"
+  printf 'ENV:OPENAI_API_KEY=%s CODEX_API_KEY=%s ANTHROPIC_API_KEY=%s ANTHROPIC_AUTH_TOKEN=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_USE_BEDROCK=%s CLAUDE_CODE_USE_VERTEX=%s CLAUDE_CODE_USE_FOUNDRY=%s CWD=%s\n' "${OPENAI_API_KEY-unset}" "${CODEX_API_KEY-unset}" "${ANTHROPIC_API_KEY-unset}" "${ANTHROPIC_AUTH_TOKEN-unset}" "${ANTHROPIC_BASE_URL-unset}" "${CLAUDE_CODE_USE_BEDROCK-unset}" "${CLAUDE_CODE_USE_VERTEX-unset}" "${CLAUDE_CODE_USE_FOUNDRY-unset}" "$(pwd)" >> "$FAKE_RECORD"
 fi
 if [ "$1" = "--version" ]; then echo "${FAKE_VERSION:-2.1.310} (Claude Code)"; exit 0; fi
 cat > /dev/null
-if [ -n "$FAKE_SLEEP" ]; then sleep "$FAKE_SLEEP"; fi
-if [ -n "$FAKE_TOUCH" ]; then echo moved >> "$FAKE_TOUCH"; fi
+# With both set, the marker is written by a backgrounded grandchild after the
+# sleep, so a test can tell whether the whole process group was killed.
+if [ -n "$FAKE_SLEEP" ] && [ -n "$FAKE_TOUCH" ]; then (sleep "$FAKE_SLEEP"; echo moved >> "$FAKE_TOUCH") & wait
+elif [ -n "$FAKE_SLEEP" ]; then sleep "$FAKE_SLEEP"
+elif [ -n "$FAKE_TOUCH" ]; then echo moved >> "$FAKE_TOUCH"; fi
 if [ -n "$FAKE_RAW_STDOUT" ]; then printf '%s\n' "$FAKE_RAW_STDOUT"; exit "${FAKE_EXIT:-0}"; fi
-printf '{"type":"result","subtype":"success","is_error":false,"structured_output":%s}\n' "${FAKE_OUTPUT:-$EMPTY}"
+# $FAKE_DENIALS is the JSON array reported as permission_denials.
+printf '{"type":"result","subtype":"success","is_error":false,"permission_denials":%s,"structured_output":%s}\n' "${FAKE_DENIALS:-[]}" "${FAKE_OUTPUT:-$EMPTY}"
 exit "${FAKE_EXIT:-0}"
