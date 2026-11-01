@@ -358,8 +358,12 @@ these), `--no-rule <id>` (repeatable), `--quiet` (summary line only),
 The repo root is `--cwd` or, without it, the current directory. good-agent
 never walks up to the git top level: discovery, the Codex chain and the JSON
 `root` all start there, and running it from a subdirectory checks that
-subdirectory as a root. That matches how Codex treats the directory it is
-started in and keeps the empty-directory case well defined.
+subdirectory as a root. This keeps the empty-directory case well defined,
+but it is narrower than Codex, which loads from the repository root down to
+its cwd: a run from a subdirectory cannot see the ancestor `AGENTS.md`
+files that share the budget, so complete `codex/size-budget` validation
+means running from the repository root. The CLI help and the README say
+so.
 
 ### 4.3 Exit codes
 
@@ -704,10 +708,13 @@ trees.
   `CHANGELOG.md`, `test/`, `docs/`.
 - **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
   Trellis. No build step, so the published files are the tested files and
-  `npx` runs them directly. Type checking runs with `tsc --noEmit` from a
-  single exact-pinned `typescript` devDependency. Decision: keep it. It is
-  dev-only, from one large maintainer, and the lockfile pins its integrity
-  hash; dropping it would mean typing by hand what the checker catches.
+  `npx` runs them directly. Type checking runs with `tsc --noEmit` over the
+  shipped `.mjs` files from two exact-pinned devDependencies, `typescript`
+  and `@types/node` (without which `node:` imports and `process` do not
+  resolve; it brings one small transitive dependency, `undici-types`).
+  Decision: keep both. They are dev-only, from large maintainers, and the
+  lockfile pins their integrity hashes; dropping them would mean typing by
+  hand what the checker catches.
 - **Runtime dependencies: none.** Everything needed is in Node 22:
   `node:fs`, `node:path`, `node:util.parseArgs` for flags, `node:test` for
   tests. The directory walk is hand-written (`fs.glob` is still marked
@@ -756,7 +763,7 @@ three himself.
 | `canonical/name` severity | warn (true, and the root cause on taproot-controls) |
 | `claude/size` severity | warn (CI should see what Claude warns about locally) |
 | `copilot/pointer-thin` threshold | 2,048 bytes, v0.2 |
-| `typescript` devDependency | keep, exact-pinned, dev-only |
+| `typescript` devDependency | keep, exact-pinned, dev-only, plus `@types/node` for the `node:` imports |
 | Package name | **Jereme:** claim unscoped `good-agent` as the package; scoped alias keeps the namespace |
 | Skill install shape | two generated copies, v0.2 rule that they match |
 | `inspect` in v0.1 | yes |

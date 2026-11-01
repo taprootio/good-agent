@@ -148,6 +148,10 @@ good-agent init --skill
 
 Exit codes: 0 pass, 1 findings, 2 usage or config error.
 
+`check` looks at the directory it runs in (or `--cwd`). Codex loads
+`AGENTS.md` files from the repository root down to its working directory,
+so run the guard from the repository root to validate the whole budget.
+
 With paths, `check` runs only when one of them is an instruction file, a
 file an instruction file links to, or the config file, so a pre-commit
 hook or a changed-paths verifier can pass it everything and let it decide.

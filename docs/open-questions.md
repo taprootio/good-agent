@@ -42,8 +42,8 @@ The first round of questions was answered on 2026-11-01; the answers are in
 - `info` findings hidden unless `--verbose` or `--json`.
 - New rules ship as warn or info in minors; error promotion only in majors.
 - MIT, same copyright line as Trellis.
-- Node 22+, zero runtime dependencies, one exact-pinned devDependency, no
-  build step.
+- Node 22+, zero runtime dependencies, two exact-pinned devDependencies
+  (`typescript`, `@types/node`), no build step.
 - Config file name `good-agent.config.json`, JSON only.
 - No watcher by default for external review; the runner is a child process
   of the authoring tool.
