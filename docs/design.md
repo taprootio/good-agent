@@ -1,7 +1,8 @@
 # good-agent design
 
-Status: draft for review. Nothing here is implemented yet.
-Date of all document checks below: 2026-11-01.
+Status: the design of record. Sections 2 to 7, 9 and 12 are implemented
+(GA0001 to GA0004); section 8's release flow is GA0005. Date of all
+document checks below: 2026-11-01.
 
 `good-agent` keeps AI tool instruction files DRY and
 inside what the tools actually load. It ships a **guard** (a CLI check for
@@ -258,12 +259,12 @@ the fact it rests on, and the decision on the candidate list from the brief.
 | --- | --- | --- | --- |
 | `canonical/detect` | error | v0.1 | A canonical file could be determined (section 2). |
 | `canonical/name` | warn | v0.1 | The canonical file is named `AGENTS.md`. Otherwise Codex (only `AGENTS.md` and user-configured fallbacks) and Copilot (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) see only a written pointer. Fix: rename and keep `CLAUDE.md` as `@AGENTS.md`. |
-| `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory totals at most `limits.codexBytes` (32,768). Per directory the chain takes the first file that exists in the order `AGENTS.override.md`, `AGENTS.md`, exactly as the loader does (`agents_md_paths` probes metadata only); if that file is empty it contributes zero bytes and the directory's `AGENTS.md` is not read, so an empty override silences its directory. That case produces no budget finding; `inspect` shows the selected file with its zero bytes and the shadowed `AGENTS.md`, and a `codex/override-shadows` warning is v0.2. User-configured `project_doc_fallback_filenames` live in `~/.codex/config.toml`, so v0.1 does not model them and says so in `explain`. The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load. Source: `agents_md.rs` truncation loop. |
+| `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory totals at most `limits.codexBytes` (32,768). Per directory the chain takes the first file that exists in the order `AGENTS.override.md`, `AGENTS.md`, exactly as the loader does (`agents_md_paths` probes metadata only); if that file is empty it contributes zero bytes and the directory's `AGENTS.md` is not read, so an empty override silences its directory. That case produces no budget finding; `inspect` shows the selected file with its zero bytes and the shadowed `AGENTS.md`, and a `codex/override-shadows` warning is v0.2. User-configured `project_doc_fallback_filenames` live in `~/.codex/config.toml`, so v0.1 does not model them and says so in `explain`. The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load; chains cut at the same file and byte are merged into one finding with every chain in `data.chains`. Source: `agents_md.rs` truncation loop. |
 | `claude/import-canonical` | error | v0.1 | If `CLAUDE.md` (or `.claude/CLAUDE.md`) exists and the canonical file is a different file, it contains an `@<canonical>` import outside code spans. A Markdown link is not enough. If there is no `CLAUDE.md` and the canonical file is not `AGENTS.md`, that is an error too (Claude loads nothing). If there is no `CLAUDE.md` and the canonical file is `AGENTS.md`, that is `info`: Claude Code 2.1.277+ reads it, older versions do not. |
-| `claude/size` | warn | v0.1 | The launch set is what Claude Code loads at startup: `CLAUDE.md` or `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` without `paths`, and their `@` imports to four hops, each file once; with no `CLAUDE.md` at all, `AGENTS.md` (the documented fallback). Warn for **each file** in that set over `limits.claudeLines` (200), which is the documented per-file target. When no file is over the target but the launch set together is, one `info` finding reports the total, because the docs say a combined warning exists but give no number; a clean repo gets no finding at all. Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding names the file, how it reaches the launch set (directly or via which import), and its line count. |
+| `claude/size` | warn | v0.1 | The launch set is what Claude Code loads at startup: `CLAUDE.md` or `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` without `paths`, and their `@` imports to four hops, each file once; with no `CLAUDE.md` at all, `AGENTS.md` (the documented fallback). Warn for **each file** in that set over `limits.claudeLines` (200), which is the documented per-file target. When no file is over the target but the launch set together is, one `info` finding reports the total, because the docs say a combined warning exists but give no number; a clean repo gets no finding at all. Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. Import targets under `ignore` or the ignored directories are left out of the launch set even though Claude Code loads them. The finding names the file, how it reaches the launch set (directly or via which import), and its line count. |
 | `links/broken` | error | v0.1 | Every relative Markdown link and every `@` import in an instruction file resolves to an existing path. Fragments are stripped; `http(s)`, `mailto` and `#` anchors are skipped; a Markdown link with a leading `/` resolves from the repo root, as in canonical detection; `~/` and absolute imports are skipped (they are outside the repo). Imports are resolved relative to the containing file, as the Claude docs say. A broken import is called out separately because Claude "silently loads nothing for it." |
-| `claude/import-depth` | warn | v0.1 | An import chain deeper than four hops; the docs say files past that are not loaded. Cheap to check while resolving `links/broken`. |
-| `copilot/applyto` | error | v0.1 | Every `.github/instructions/*.instructions.md` starts with front matter containing `applyTo`; `excludeAgent`, if present, is `code-review` or `cloud-agent`. Without `applyTo` Copilot never attaches the file. |
+| `claude/import-depth` | warn | v0.1 | An import chain deeper than four hops; the docs say files past that are not loaded. Cheap to check while resolving `links/broken`. The depth is measured from every Claude entry point (root and nested `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md` and `.claude/rules` files, path-scoped ones included, plus the `AGENTS.md` fallback), while `claude/size` counts only the launch set. |
+| `copilot/applyto` | error | v0.1 | Every `.github/instructions/*.instructions.md` starts with front matter containing `applyTo`; `excludeAgent`, if present, is `code-review` or `cloud-agent`. Without `applyTo` Copilot never attaches the file. Malformed front matter (unclosed, or lines outside the `key: value` subset) is reported too. |
 | `dry/copied-canonical` | error | v0.1 | A tool file whose substantive lines (normalised whitespace, at least 20 chars, not headings) are at least 50% identical to lines in the canonical file, with a floor of five lines. This is the "CLAUDE.md copies AGENTS.md instead of importing it" case. Fix: replace with `@<canonical>` or a pointer. |
 | `dry/duplicate-block` | warn | v0.2 | An identical paragraph or list item (60+ chars after whitespace normalisation) in two instruction files. Pointer sentences (blocks that link to or import the canonical file) are exempt because they are supposed to repeat. Suppressed for any file pair that `dry/copied-canonical` already reported, so a wholesale copy is one finding, not twenty. |
 | `copilot/pointer-thin` | warn | v0.2 | `.github/copilot-instructions.md` larger than `limits.pointerBytes` (2,048) when it is not the canonical file. Copilot reads the canonical `AGENTS.md` natively on every surface except GitHub.com Chat, and has no import, so anything beyond a pointer here is a second copy. |
@@ -374,7 +375,7 @@ repository root. The CLI help and the README say so.
 | --- | --- |
 | 0 | No `error` findings (warnings and info allowed; with `--strict`, no warnings either). |
 | 1 | At least one failing finding. |
-| 2 | Usage or config error (unknown flag, unreadable config, unknown rule id). |
+| 2 | Usage or config error (unknown flag, unreadable config, unknown rule id), and `init` refusing to overwrite a hand-edited skill copy. |
 | 3 | Internal error (stack trace printed; please report). |
 
 ### 4.4 Human output
@@ -392,9 +393,9 @@ good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
   docs: https://developers.openai.com/codex/guides/agents-md
 
 ▲ AGENTS.md  claude/size
-  590 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
+  589 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
   the docs recommend under 200 lines per file because longer files reduce
-  adherence. Launch set: CLAUDE.md 29 + AGENTS.md 590 = 619 lines.
+  adherence. Launch set: CLAUDE.md 28 + AGENTS.md 589 = 617 lines.
   fix: Move reference material into docs/ linked by path (not @-imported), or
   into skills and path-scoped .claude/rules that load on demand.
   docs: https://code.claude.com/docs/en/memory
@@ -414,8 +415,8 @@ with the numbers, the fix, the doc. The file line is first so editors and
   "root": "/Users/jereme/src/taproot",
   "canonical": "AGENTS.md",
   "files": [
-    { "path": "AGENTS.md", "bytes": 34348, "lines": 590, "readBy": ["codex", "copilot", "claude:import"] },
-    { "path": "CLAUDE.md", "bytes": 1575, "lines": 29, "readBy": ["claude", "copilot"] }
+    { "path": "AGENTS.md", "bytes": 34348, "lines": 589, "readBy": ["codex", "claude:import", "copilot"] },
+    { "path": "CLAUDE.md", "bytes": 1575, "lines": 28, "readBy": ["claude", "copilot"] }
   ],
   "findings": [
     {
@@ -437,12 +438,16 @@ with the numbers, the fix, the doc. The file line is first so editors and
 across minor versions.
 
 `inspect --json` shares `version`, `root`, `canonical` and `files`, and adds
-what each tool loads:
+what each tool loads. `readBy` lists what loads at launch (`codex`,
+`claude`, `claude:import`, `claude:fallback`); `copilot` marks the files
+Copilot reads (path-specific files are attached per request by `applyTo`), not
+files loaded at launch; `claude:on-demand` marks a file Claude Code loads only
+later, such as a path-scoped rule or a nested `CLAUDE.md`:
 
 ```json
 {
   "codex": { "chains": [ { "dir": ".", "files": ["AGENTS.md"], "bytes": 34348, "limit": 32768, "truncatedAt": 32768 } ] },
-  "claude": { "launch": [ { "file": "CLAUDE.md", "lines": 29 }, { "file": "AGENTS.md", "lines": 590, "via": "CLAUDE.md" } ], "lines": 619, "limit": 200 },
+  "claude": { "launch": [ { "file": "CLAUDE.md", "lines": 28 }, { "file": "AGENTS.md", "lines": 589, "via": "CLAUDE.md" } ], "lines": 617, "limit": 200 },
   "copilot": { "repoWide": ".github/copilot-instructions.md", "pathSpecific": [ { "file": ".github/instructions/proto.instructions.md", "applyTo": "**/*.proto" } ] }
 }
 ```
@@ -532,7 +537,7 @@ lines; the spec ceiling is 500.
 
 Body, in order:
 
-1. **The layout** (section 2 in four bullets) and why: what each tool loads,
+1. **The layout** (section 2 in five bullets) and why: what each tool loads,
    with the numbers.
 2. **Set up a repo**: create or rename to `AGENTS.md`; write `CLAUDE.md` as
    `@AGENTS.md` plus Claude-only notes; write
@@ -576,9 +581,10 @@ Each copy keeps the `---` front matter as its first line, as the Agent Skills
 format requires, and carries an HTML comment on the first body line marking
 it generated, naming the refresh command, and holding a hash of the whole
 copy except the marker line, front matter included; installed
-`references/` files are covered by a manifest of hashes next to the
-`SKILL.md`. A hand-edited copy is detected and not overwritten without
-`--force`.
+`references/` files are covered by a manifest of hashes
+(`.good-agent-manifest.json`) next to the `SKILL.md`. A hand-edited copy is
+detected and not overwritten without `--force` (`init` exits 2 and names the
+file).
 Two copies rather than a symlink because
 the Claude docs say Edit and Write refuse to write through symlinks, and
 Windows checkouts turn symlinks into text files. A follow-up rule
@@ -702,13 +708,17 @@ trees.
   generated markers), `src/rules/<area>/<name>.mjs` (one file per rule
   exporting `{ id, severity, since, docs, rationale, fix, run(ctx) }`; `docs[0]`
   is the primary page and the only one human output prints), `src/report.mjs`
-  (human and JSON), `src/review.mjs` (the runner, section 12),
-  `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task` and
+  (human and JSON), `src/review.mjs` (the runner, section 12) with
+  `src/review-store.mjs` (reviews directory, ids, round reservation, lock and
+  tree digest), `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task` and
   `review-loop`, with the four review prompts at
   `skill/review-loop/references/review-{diff,story,plan,design}.md` so
   they install with the skill,
   `schema/config.json`, `schema/findings.json`, `alias/package.json`,
-  `CHANGELOG.md`, `test/`, `docs/`.
+  `CHANGELOG.md`, `test/` (with `test/fakes/`, the fake `codex` and `claude`
+  executables the runner's self-test puts first on `PATH`), `docs/` (with
+  `docs/review-runner.md`, the runner's command reference), and
+  `scripts/live-denial.mjs`, the opt-in live probe that is never in CI.
 - **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
   Trellis. No build step, so the published files are the tested files and
   `npx` runs them directly. Type checking runs with `tsc --noEmit` over the
@@ -849,9 +859,12 @@ repo can link to.
    as a child process and returns the findings:
 
    ```
-   good-agent review --by codex|claude [--prompt diff|story|plan|design]
+   good-agent review [--by codex|claude] [--author codex|claude]
+                     [--prompt diff|story|plan|design]
                      [--base <ref>] [--task <path>] [--prior <findings.json>]
-                     [--model <m>] [--effort <e>] [--timeout-minutes 45] [--json]
+                     [--verified "<command>"]... [--model <m>] [--effort <e>]
+                     [--timeout-minutes 45] [--no-wait] [--json]
+                     [--cwd <dir>] [--config <file>]
    ```
 
    It carries over what Taproot's exchange already worked out: the hardened
@@ -860,7 +873,10 @@ repo can link to.
    mode with Read, Grep, Glob and a Bash that Claude's own read-only command
    validation restricts under `dontAsk`, and no Edit, Write or Agent), the
    findings schema through
-   `--output-schema` and `--json-schema`, tree digests before and after, a
+   `--output-schema` and `--json-schema`, tree digests before and after (the
+   digest covers `HEAD`, the index entries from `git ls-files --stage`, the porcelain
+   status and the content of every tracked and unignored untracked file, so
+   an empty commit or a staged change voids a round too), a
    per-reviewer lock so two reviews by the same reviewer never run at once,
    numbered rounds with
    `--prior`, and a reviews directory outside the tree
@@ -885,11 +901,15 @@ repo can link to.
    keeps its number, records the failure in its `.meta.json`, and does not
    count toward the cap.
    The reviews directory is keyed by the repository, not the worktree:
-   `<repo-slug>` is the basename of the git common directory's parent plus a
-   short hash of its absolute path, so every worktree of one clone shares a
-   history. The per-reviewer lock lives at the reviews root, so two reviews
+   `<repo-slug>` is a name (the main worktree's directory, or the module name
+   for a submodule) plus a short hash of the absolute git common directory
+   itself, so every worktree of one clone shares a history and two
+   submodules of one superproject do not. The per-reviewer lock lives at the reviews root, so two reviews
    by the same reviewer never run at once, even across repositories. Review exit codes:
    0 clean, 1 findings, 2 usage or config, 3 unsafe or reviewer failure.
+   [review-runner.md](review-runner.md) has the flag reference, the hardened
+   invocations with dated citations, and the table that maps each check of
+   Taproot's exchange self-test to its replacement.
 
 ### The watcher question
 
@@ -934,8 +954,7 @@ split that keeps both DRY: **Trellis owns the backlog lifecycle** (where an
 item lives, closeout, regenerate and check) and **good-agent owns the
 working and reviewing loop** (write a story, plan, dispatch, internal and
 external review, the runner). good-agent's playbooks name Trellis's seam
-points when Trellis is present and work without it otherwise. Trellis's own
-`work-task` steps 9 and 10 (review and fix) could then defer to the
-`review-loop` skill when good-agent is installed. That edit to Trellis is a
-decision for Jereme and is listed in open questions; no story here touches
-Trellis's playbooks. GA0006 covers the taproot and taproot-controls side.
+points when Trellis is present and work without it otherwise. The owner
+decided on 2026-11-01 that Trellis's `work-task` playbook is removed once
+good-agent is ready, tracked as GA0007; good-agent's skills are the loop's
+home. GA0006 covers the taproot and taproot-controls side.

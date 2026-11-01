@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "findings": [
+    {
+      "rule": "canonical/name",
+      "severity": "warn",
+      "file": "AI_GUIDELINES.md"
+    }
+  ]
+}

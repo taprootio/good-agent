@@ -1,0 +1,15 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "claude/import-canonical",
+      "severity": "error",
+      "file": "AI_GUIDELINES.md"
+    },
+    {
+      "rule": "canonical/name",
+      "severity": "warn",
+      "file": "AI_GUIDELINES.md"
+    }
+  ]
+}

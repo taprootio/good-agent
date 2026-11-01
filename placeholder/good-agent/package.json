@@ -1,0 +1,10 @@
+{
+  "name": "good-agent",
+  "version": "0.0.1",
+  "description": "Placeholder for good-agent, which keeps AI tool instruction files DRY and inside what each tool actually loads. The first real release is 0.1.0.",
+  "license": "MIT",
+  "homepage": "https://github.com/taprootio/good-agent#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/taprootio/good-agent.git" },
+  "files": ["README.md"],
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" }
+}

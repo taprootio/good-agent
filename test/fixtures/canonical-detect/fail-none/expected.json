@@ -1,0 +1,10 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "canonical/detect",
+      "severity": "error",
+      "file": "."
+    }
+  ]
+}

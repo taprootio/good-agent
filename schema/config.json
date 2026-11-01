@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/taprootio/good-agent/main/schema/config.json",
+  "title": "good-agent.config.json",
+  "description": "Configuration for the good-agent guard, version 1. Everything is optional.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "canonical": { "type": "string", "minLength": 1, "description": "Repo-relative path of the canonical instruction file. Detected from inbound references when omitted." },
+    "ignore": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Globs (*, **, ?) of paths to skip in discovery and reference checks." },
+    "extraFiles": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Globs of additional files to treat as instruction files." },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "codexBytes": { "type": "integer", "minimum": 1, "default": 32768, "description": "Codex project_doc_max_bytes." },
+        "claudeLines": { "type": "integer", "minimum": 1, "default": 200, "description": "Claude Code's recommended lines per instruction file." },
+        "pointerBytes": { "type": "integer", "minimum": 1, "default": 2048, "description": "Reserved for copilot/pointer-thin (v0.2)." }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "description": "Rule id to severity. The object form allows only \"severity\" in version 1.",
+      "propertyNames": { "enum": ["canonical/detect", "canonical/name", "codex/size-budget", "claude/import-canonical", "claude/import-depth", "claude/size", "links/broken", "copilot/applyto", "dry/copied-canonical"] },
+      "additionalProperties": {
+        "oneOf": [
+          { "enum": ["error", "warn", "info", "off"] },
+          { "type": "object", "additionalProperties": false, "required": ["severity"], "properties": { "severity": { "enum": ["error", "warn", "info", "off"] } } }
+        ]
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Read by `good-agent review`.",
+      "properties": {
+        "externalReviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "claude": { "enum": ["codex", "claude"] },
+            "codex": { "enum": ["codex", "claude"] }
+          }
+        },
+        "codex": { "$ref": "#/$defs/reviewer" },
+        "claude": { "$ref": "#/$defs/reviewer" }
+      }
+    }
+  },
+  "$defs": {
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "effort": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

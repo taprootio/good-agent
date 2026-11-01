@@ -1,0 +1,15 @@
+{
+  "exitCode": 0,
+  "findings": [
+    {
+      "rule": "claude/size",
+      "severity": "warn",
+      "file": "AGENTS.md"
+    },
+    {
+      "rule": "claude/import-canonical",
+      "severity": "info",
+      "file": "AGENTS.md"
+    }
+  ]
+}

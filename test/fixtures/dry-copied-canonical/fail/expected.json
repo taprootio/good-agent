@@ -1,0 +1,16 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "dry/copied-canonical",
+      "severity": "error",
+      "file": "CLAUDE.md"
+    },
+    {
+      "rule": "claude/import-canonical",
+      "severity": "error",
+      "file": "CLAUDE.md",
+      "line": 1
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "codex/size-budget",
+      "severity": "error",
+      "file": "AGENTS.md",
+      "line": 1
+    }
+  ]
+}

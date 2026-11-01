@@ -1,0 +1,12 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "links/broken",
+      "severity": "error",
+      "file": "AGENTS.md",
+      "line": 11,
+      "generatedBy": "TRELLIS"
+    }
+  ]
+}

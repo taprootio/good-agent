@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/taprootio/good-agent/main/schema/config.json",
+  "version": 1,
+  "ignore": ["test/fixtures/**", "test/corpus/**"],
+  "review": {
+    "externalReviewer": { "claude": "codex", "codex": "claude" },
+    "codex": { "effort": "medium" },
+    "claude": { "model": "sonnet", "effort": "high" }
+  }
+}

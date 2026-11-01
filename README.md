@@ -30,6 +30,10 @@ exist. Keeping AI tool instructions DRY is just as important as keeping code DRY
 
 Zero runtime dependencies. Node 22 or later. MIT.
 
+`@taprootio/good-agent` is an alias of the same package: it installs the same
+`good-agent` command, so `npx @taprootio/good-agent check` and
+`npx good-agent check` run identical code.
+
 ## Five-minute setup
 
 ```bash
@@ -37,24 +41,26 @@ npx good-agent check
 ```
 
 That is the whole setup for the guard. It finds your instruction files, works
-out which one is canonical (the one the others point at), and reports.
+out which one is canonical (the one the others point at), and reports. This is
+the output on a repository whose `AGENTS.md` has grown to 34,348 bytes:
 
 ```
-good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
+good-agent 0.1.0 · 2 instruction files · canonical AGENTS.md
 
-✖ AGENTS.md  codex/size-budget
+✖ AGENTS.md:565  codex/size-budget
   Codex loads at most 32,768 bytes of AGENTS.md content along the chain
   AGENTS.md (34,348 bytes). It truncates AGENTS.md at byte 32,768 (line 565,
   inside "## Area-specific architecture"); the last 1,580 bytes never reach
   Codex.
   fix: Move long sections into docs/ and link them from AGENTS.md, or split
-  guidance into nested AGENTS.md files closer to the code they govern.
+  guidance into nested AGENTS.md files closer to the code they govern. Raising
+  project_doc_max_bytes is per-user config and does not fix the repository.
   docs: https://developers.openai.com/codex/guides/agents-md
 
 ▲ AGENTS.md  claude/size
-  590 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
-  the docs recommend under 200 lines per file because longer files reduce
-  adherence. Launch set: CLAUDE.md 29 + AGENTS.md 590 = 619 lines.
+  589 lines, loaded at launch through the @import in CLAUDE.md; the docs
+  recommend under 200 lines per file because longer files reduce adherence.
+  Launch set: CLAUDE.md 28 + AGENTS.md 589 = 617 lines.
   fix: Move reference material into docs/ linked by path (not @-imported), or
   into skills and path-scoped .claude/rules that load on demand.
   docs: https://code.claude.com/docs/en/memory
@@ -65,22 +71,26 @@ good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
 Or, on a repo whose `CLAUDE.md` says "see AI_GUIDELINES.md" in prose:
 
 ```
-✖ CLAUDE.md  claude/import-canonical
-  CLAUDE.md links to AI_GUIDELINES.md as a Markdown link, which Claude Code
-  only follows if it decides to open the file. Claude Code imports a file
-  only through `@path` syntax.
-  fix: Replace the pointer with a line containing `@AI_GUIDELINES.md`; keep
+✖ CLAUDE.md:1  claude/import-canonical
+  CLAUDE.md links to AI_GUIDELINES.md as a Markdown link, which Claude Code only
+  follows if it decides to open the file. Claude Code imports a file only
+  through @path syntax.
+  fix: Replace the pointer with a line containing @AI_GUIDELINES.md; keep
   Claude-only notes below it.
   docs: https://code.claude.com/docs/en/memory
 ```
 
-A clean repo prints one line and exits 0.
+A clean repo prints the header and the summary line and exits 0.
 
 Then, if you want the skill in the repo for Claude Code, Codex and Copilot:
 
 ```bash
 npx good-agent init --skill
 ```
+
+This installs the skills into `.agents/skills/` and `.claude/skills/` as
+generated copies. Each copy carries a generated marker with a hash, and
+`init` exits 2 naming a copy you edited unless you pass `--force`.
 
 And in CI:
 
@@ -143,10 +153,12 @@ good-agent check [--json] [--strict] [--verbose] [--rule id] [--config file] [--
 good-agent inspect [--json]      what each tool loads, with sizes
 good-agent explain <rule>
 good-agent rules
-good-agent init --skill
+good-agent init --skill [--force]
+good-agent review --by codex|claude --prompt diff|story|plan|design [--base ref] [--task path] [--json]
 ```
 
-Exit codes: 0 pass, 1 findings, 2 usage or config error.
+Exit codes: 0 pass, 1 findings, 2 usage or config error (including `init`
+refusing to overwrite an edited skill copy).
 
 `check` looks at the directory it runs in (or `--cwd`). Codex loads
 `AGENTS.md` files from the repository root down to its working directory,
@@ -161,6 +173,34 @@ hook or a changed-paths verifier can pass it everything and let it decide.
 ```sh
 git diff --cached --name-only -z | xargs -0 -r npx --no-install good-agent check
 ```
+
+### Review runner
+
+`good-agent review` needs a git working tree (outside one it exits 2) and
+spawns a fresh, read-only review by the other AI tool
+(Codex reviews Claude's work, Claude reviews Codex's), checks the findings
+against `schema/findings.json`, and prints them. Run it as a background
+command from the authoring tool and wait for the one notification:
+
+```sh
+npx good-agent review --by codex --prompt diff --base <start sha> --task trellis/active/<id>.md --verified "npm test"
+npx good-agent review --by claude --prompt story --task trellis/active/<id>.md --json
+```
+
+`--by` defaults from `review.externalReviewer` in `good-agent.config.json`,
+keyed by `--author`; the model and effort come from the per-tool `review`
+block. Without `--json` it prints each finding (file, line, severity,
+suggestion) and the count; with it, the bare findings array. Exit codes:
+0 clean (`[]`), 1 findings, 2 usage or config error, 3 the review is unsafe
+(the tree changed while the reviewer ran) or the reviewer failed.
+
+Rounds, metadata and logs are kept outside the tree in
+`~/.config/good-agent/reviews/` (`GOOD_AGENT_REVIEWS` overrides it). Several
+lanes, in worktrees or in separate clones, share that directory by default
+and can start reviews whenever they are ready: a lock per reviewer makes a
+second review by the same tool wait its turn (`--no-wait` fails fast
+instead), and each review takes its own round number. Every flag, the hardened invocations and the history
+layout are in [docs/review-runner.md](docs/review-runner.md).
 
 ## What it does not do
 

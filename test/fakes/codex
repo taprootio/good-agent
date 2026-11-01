@@ -1,0 +1,45 @@
+#!/bin/sh
+# A fake Codex CLI for the review runner's self-test. It records every
+# invocation (argv and selected environment) to $FAKE_RECORD, answers
+# --version and `mcp list --json`, and for `exec` writes $FAKE_OUTPUT (default
+# {"findings":[]}) to the -o path after $FAKE_SLEEP seconds, optionally
+# touching $FAKE_TOUCH to simulate a tree that moved, and exits $FAKE_EXIT.
+EMPTY='{"findings":[]}'
+if [ -n "$FAKE_RECORD" ]; then
+  printf 'ARGV:%s\n' "$*" >> "$FAKE_RECORD"
+  printf 'ENV:OPENAI_API_KEY=%s CODEX_API_KEY=%s ANTHROPIC_API_KEY=%s ANTHROPIC_AUTH_TOKEN=%s ANTHROPIC_BASE_URL=%s CLAUDE_CODE_USE_BEDROCK=%s CLAUDE_CODE_USE_VERTEX=%s CLAUDE_CODE_USE_FOUNDRY=%s CWD=%s\n' "${OPENAI_API_KEY-unset}" "${CODEX_API_KEY-unset}" "${ANTHROPIC_API_KEY-unset}" "${ANTHROPIC_AUTH_TOKEN-unset}" "${ANTHROPIC_BASE_URL-unset}" "${CLAUDE_CODE_USE_BEDROCK-unset}" "${CLAUDE_CODE_USE_VERTEX-unset}" "${CLAUDE_CODE_USE_FOUNDRY-unset}" "$(pwd)" >> "$FAKE_RECORD"
+fi
+if [ "$1" = "--version" ]; then [ -n "$FAKE_VERSION_SLEEP" ] && sleep "$FAKE_VERSION_SLEEP"; echo "codex-cli ${FAKE_VERSION:-0.156.1}"; exit 0; fi
+if [ "$1" = "mcp" ]; then
+  [ -n "$FAKE_MCP_SLEEP" ] && sleep "$FAKE_MCP_SLEEP"
+  shift; shift; shift
+  # $FAKE_MCP is the JSON the first listing returns; a later listing with an
+  # override for each server returns an empty list unless FAKE_MCP_STUCK is set.
+  case " $* " in *"mcp_servers."*) if [ -n "$FAKE_MCP_STUCK" ]; then echo "${FAKE_MCP:-[]}"; else echo "[]"; fi ;; *) echo "${FAKE_MCP:-[]}" ;; esac
+  exit 0
+fi
+if [ "$1" = "exec" ]; then
+  out=""; prev=""
+  for a in "$@"; do if [ "$prev" = "-o" ]; then out="$a"; fi; prev="$a"; done
+  [ -n "$FAKE_STARTED_FILE" ] && echo started >> "$FAKE_STARTED_FILE"
+  if [ -n "$FAKE_STDIN_FILE" ]; then cat > "$FAKE_STDIN_FILE"; else cat > /dev/null; fi
+  # With both set, the marker is written by a backgrounded grandchild after the
+  # sleep, so a test can tell whether the whole process group was killed.
+  if [ -n "$FAKE_SLEEP" ] && [ -n "$FAKE_TOUCH" ]; then (sleep "$FAKE_SLEEP"; echo moved >> "$FAKE_TOUCH") & wait
+  elif [ -n "$FAKE_SLEEP" ]; then sleep "$FAKE_SLEEP"
+  elif [ -n "$FAKE_TOUCH" ]; then echo moved >> "$FAKE_TOUCH"; fi
+  # FAKE_ORPHAN=1: leave a backgrounded grandchild sleeping (stdio on /dev/null)
+  # in this process group after exiting, and write "<group id> <grandchild pid>"
+  # to $FAKE_ORPHAN_FILE, to test that the runner reaps the group.
+  if [ -n "$FAKE_ORPHAN" ]; then
+    sleep "${FAKE_ORPHAN_SLEEP:-30}" </dev/null >/dev/null 2>&1 &
+    [ -n "$FAKE_ORPHAN_FILE" ] && echo "$$ $!" > "$FAKE_ORPHAN_FILE"
+  fi
+  # FAKE_BREAK_INDEX=1: make the repository unreadable for git, so the runner's digest after the review fails.
+  if [ -n "$FAKE_BREAK_INDEX" ]; then chmod 000 "$(git rev-parse --git-dir)/index"; fi
+  if [ -n "$FAKE_STDERR" ]; then echo "$FAKE_STDERR" >&2; fi
+  if [ -z "$FAKE_NO_OUTPUT" ] && [ -n "$out" ]; then printf '%s\n' "${FAKE_OUTPUT:-$EMPTY}" > "$out"; fi
+  exit "${FAKE_EXIT:-0}"
+fi
+echo "fake codex: unexpected arguments: $*" >&2
+exit 64

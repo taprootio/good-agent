@@ -1,0 +1,17 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "links/broken",
+      "severity": "error",
+      "file": "AGENTS.md",
+      "line": 8
+    },
+    {
+      "rule": "links/broken",
+      "severity": "error",
+      "file": "CLAUDE.md",
+      "line": 2
+    }
+  ]
+}

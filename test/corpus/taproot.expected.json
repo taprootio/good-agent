@@ -1,0 +1,20 @@
+{
+  "pin": {
+    "commit": "23496ea60"
+  },
+  "exitCode": 1,
+  "canonical": "AGENTS.md",
+  "findings": [
+    {
+      "rule": "codex/size-budget",
+      "severity": "error",
+      "file": "AGENTS.md",
+      "line": 565
+    },
+    {
+      "rule": "claude/size",
+      "severity": "warn",
+      "file": "AGENTS.md"
+    }
+  ]
+}

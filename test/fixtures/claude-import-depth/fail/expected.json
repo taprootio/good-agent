@@ -1,0 +1,11 @@
+{
+  "exitCode": 0,
+  "findings": [
+    {
+      "rule": "claude/import-depth",
+      "severity": "warn",
+      "file": "docs/d.md",
+      "line": 1
+    }
+  ]
+}
