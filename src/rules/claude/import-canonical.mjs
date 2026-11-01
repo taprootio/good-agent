@@ -44,16 +44,23 @@ export default {
       }
       return out;
     }
+    const canonFile = ctx.repo.byPath.get(canonical);
     for (const cf of claudeFiles) {
+      // The documented symlink bridge (ln -s AGENTS.md CLAUDE.md) loads the
+      // canonical file directly; nothing to import.
+      if (cf.symlink && canonFile && cf.realPath === canonFile.realPath) continue;
       const refs = referencesOf(cf);
       if (refs.some((r) => r.kind === "import" && r.resolved === canonical)) continue;
       const linked = refs.some((r) => r.kind === "link" && r.resolved === canonical);
+      const wrongImport = refs.find((r) => r.kind === "import" && posix.basename(r.target) === posix.basename(canonical));
       const mentioned = cf.text.includes(canonical);
       const how = linked
         ? `links to ${canonical} as a Markdown link, which Claude Code only follows if it decides to open the file`
-        : mentioned
-          ? `mentions ${canonical} in prose but does not import it`
-          : `does not reference ${canonical} at all`;
+        : wrongImport
+          ? `imports @${wrongImport.target}, which resolves to ${wrongImport.resolved ?? "a path outside the repository"}, not to ${canonical}`
+          : mentioned
+            ? `mentions ${canonical} in prose but does not import it`
+            : `does not reference ${canonical} at all`;
       out.push({
         file: cf.path,
         line: 1,

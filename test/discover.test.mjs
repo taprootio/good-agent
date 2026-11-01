@@ -116,3 +116,30 @@ test("links into ignored directories are not checked", () => {
   const t = tempTree({ "AGENTS.md": "# a\n\nSee [pkg](node_modules/pkg/README.md) and [vendored](vendor/guide.md).\n", "CLAUDE.md": "@AGENTS.md\n", "good-agent.config.json": '{"ignore":["vendor/**"]}\n' });
   try { assert.equal(run(["check", "--cwd", t.root]).status, 0); } finally { t.cleanup(); }
 });
+
+test("imports reached by two paths expand at the shallowest depth; bytes are on-disk bytes", () => {
+  const t = tempTree({ "CLAUDE.md": "@docs/a.md\n@docs/d.md\n", "docs/a.md": "@b.md\n", "docs/b.md": "@c.md\n", "docs/c.md": "@d.md\n", "docs/d.md": "@e.md\n", "docs/e.md": "deep\n", "AGENTS.md": "# a\n" });
+  try {
+    const launch = claudeLaunchSet(discover(t.root, defaultConfig()));
+    assert.equal(launch.tooDeep.length, 0);
+    assert.ok(launch.entries.some((e) => e.file === "docs/e.md"));
+    assert.equal(launch.entries.find((e) => e.file === "docs/d.md")?.depth, 1);
+  } finally { t.cleanup(); }
+});
+
+test("non-UTF-8 bytes are counted on disk and the ignore check covers every ancestor", async () => {
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const t = tempTree({ "CLAUDE.md": "@AGENTS.md\n" });
+  try {
+    writeFileSync(join(t.root, "AGENTS.md"), Buffer.alloc(40000, 0xff));
+    const repo = discover(t.root, defaultConfig());
+    assert.equal(repo.byPath.get("AGENTS.md")?.bytes, 40000);
+  } finally { t.cleanup(); }
+  const { isIgnoredTarget } = await import("../src/discover.mjs");
+  const config = { ...defaultConfig(), ignore: ["vendor", "third/*"] };
+  assert.ok(isIgnoredTarget("packages/app/node_modules/pkg/README.md", config));
+  assert.ok(isIgnoredTarget("vendor/guide.md", config));
+  assert.ok(isIgnoredTarget("third/party/deep/file.md", config));
+  assert.ok(!isIgnoredTarget("docs/guide.md", config));
+});

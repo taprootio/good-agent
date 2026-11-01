@@ -66,3 +66,10 @@ test("markdownLinks: angle-bracket destinations with spaces, balanced parenthese
   const links = markdownLinks("[a](<docs/my guide.md>) [b](docs/guide(v2).md) [c](docs/x.md \"title\") [d](docs/y.md 'title')\n");
   assert.deepEqual(links.map((l) => l.target), ["docs/my guide.md", "docs/guide(v2).md", "docs/x.md", "docs/y.md"]);
 });
+
+test("code spans across lines, percent-encoded targets, parenthesized titles, stray ]( and BOM", () => {
+  assert.deepEqual(claudeImports("Use `example\n@AGENTS.md\nend` here\n"), []);
+  assert.deepEqual(markdownLinks("[a](docs/my%20guide.md) [b](missing.md (Guide title)) plain ](nope.md) \\[x](escaped.md)\n").map((l) => l.target), ["docs/my guide.md", "missing.md"]);
+  const fm = parseFrontMatter("\uFEFF---\napplyTo: \"**/*.cs\"\n---\n");
+  assert.ok(fm && fm.data.applyTo === "**/*.cs");
+});

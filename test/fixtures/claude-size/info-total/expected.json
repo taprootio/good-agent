@@ -3,8 +3,8 @@
   "findings": [
     {
       "rule": "claude/size",
-      "file": "CLAUDE.md",
-      "severity": "info"
+      "severity": "info",
+      "file": "CLAUDE.md"
     }
   ]
 }

@@ -76,7 +76,7 @@ Or, on a repo whose `CLAUDE.md` says "see AI_GUIDELINES.md" in prose:
   docs: https://code.claude.com/docs/en/memory
 ```
 
-A clean repo prints one line and exits 0.
+A clean repo prints the header and the summary line and exits 0.
 
 Then, if you want the skill in the repo for Claude Code, Codex and Copilot:
 

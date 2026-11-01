@@ -3,12 +3,13 @@
   "findings": [
     {
       "rule": "claude/size",
+      "severity": "warn",
       "file": "AGENTS.md"
     },
     {
       "rule": "claude/import-canonical",
-      "file": "AGENTS.md",
-      "severity": "info"
+      "severity": "info",
+      "file": "AGENTS.md"
     }
   ]
 }

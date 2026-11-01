@@ -5,6 +5,7 @@
  */
 import { parseArgs } from "node:util";
 import { resolve, relative } from "node:path";
+import { statSync } from "node:fs";
 import { ConfigError, loadConfig } from "./config.mjs";
 import { RULES, RULE_IDS, ruleById } from "./rules/index.mjs";
 import { analyze, runRules, summarize, pathsNeedCheck, inspectData, VERSION } from "./engine.mjs";
@@ -78,6 +79,17 @@ export async function main(argv) {
 export class UsageError extends Error {}
 
 /**
+ * The repository root: --cwd or the current directory, which must exist and
+ * be a directory (exit 2 otherwise).
+ * @param {string | undefined} cwd
+ */
+function rootDir(cwd) {
+  const root = resolve(cwd ?? process.cwd());
+  try { if (statSync(root).isDirectory()) return root; } catch { /* missing */ }
+  throw new UsageError(`${root} is not a directory`);
+}
+
+/**
  * @param {string[]} args
  * @param {(s: string) => void} out
  * @param {(s: string) => void} err
@@ -98,7 +110,7 @@ function runCheck(args, out, err) {
       "no-color": { type: "boolean", default: false },
     },
   });
-  const root = resolve(values.cwd ?? process.cwd());
+  const root = rootDir(values.cwd);
   const { config, path: configPath } = loadConfig(root, { explicitPath: values.config, knownRuleIds: RULE_IDS });
   for (const id of [...values.rule, ...values["no-rule"]]) if (!ruleById(id)) throw new UsageError(`unknown rule id "${id}" (run \`good-agent rules\`)`);
   const analysis = analyze(root, config);
@@ -122,7 +134,7 @@ function runCheck(args, out, err) {
  */
 function runInspect(args, out) {
   const { values } = parseArgs({ args, allowPositionals: false, options: { json: { type: "boolean", default: false }, config: { type: "string" }, cwd: { type: "string" } } });
-  const root = resolve(values.cwd ?? process.cwd());
+  const root = rootDir(values.cwd);
   const { config } = loadConfig(root, { explicitPath: values.config, knownRuleIds: RULE_IDS });
   const data = inspectData(analyze(root, config));
   out(values.json ? JSON.stringify(data, null, 2) : formatInspect(data));
@@ -135,8 +147,9 @@ function runInspect(args, out) {
  * @param {(s: string) => void} err
  */
 function runExplain(args, out, err) {
-  const id = args[0];
-  if (!id) throw new UsageError("explain needs a rule id (run `good-agent rules`)");
+  const { positionals } = parseArgs({ args, allowPositionals: true, options: {} });
+  if (positionals.length !== 1) throw new UsageError("explain takes exactly one rule id (run `good-agent rules`)");
+  const id = positionals[0];
   const rule = ruleById(id);
   if (!rule) { err(`good-agent: unknown rule id "${id}"`); out(`Known rules: ${RULE_IDS.join(", ")}`); return EXIT.usage; }
   out(explainText(rule));
@@ -165,7 +178,7 @@ export function explainText(rule) {
  */
 function runRulesList(args, out) {
   const { values } = parseArgs({ args, allowPositionals: false, options: { json: { type: "boolean", default: false }, config: { type: "string" }, cwd: { type: "string" } } });
-  const root = resolve(values.cwd ?? process.cwd());
+  const root = rootDir(values.cwd);
   const { config } = loadConfig(root, { explicitPath: values.config, knownRuleIds: RULE_IDS });
   const rows = RULES.map((r) => ({ id: r.id, default: r.severity, configured: config.rules[r.id] ?? r.severity, enabled: config.rules[r.id] !== "off", since: r.since, docs: r.docs }));
   if (values.json) { out(JSON.stringify(rows, null, 2)); return EXIT.ok; }

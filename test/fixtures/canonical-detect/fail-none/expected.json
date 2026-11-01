@@ -3,6 +3,7 @@
   "findings": [
     {
       "rule": "canonical/detect",
+      "severity": "error",
       "file": "."
     }
   ]

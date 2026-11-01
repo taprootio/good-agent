@@ -4,7 +4,7 @@
  * tool loads: the Codex root-to-directory chains and the Claude launch set
  * (docs/design.md sections 2, 4.1 and the rule table).
  */
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, statSync, lstatSync, realpathSync } from "node:fs";
 import { join, dirname, resolve, relative, sep, posix } from "node:path";
 import { claudeImports, markdownLinks, parseFrontMatter, countLines } from "./markdown.mjs";
 import { globToRegExp } from "./config.mjs";
@@ -22,8 +22,10 @@ const ROOT_ONLY = /^(\.github\/copilot-instructions\.md|\.github\/instructions\/
  * @typedef {object} InstructionFile
  * @property {string} path  repo-relative POSIX path
  * @property {string} text
- * @property {number} bytes
+ * @property {number} bytes  on disk, not of the decoded text
  * @property {number} lines
+ * @property {string} realPath  absolute, symlinks resolved
+ * @property {boolean} symlink
  */
 
 /**
@@ -74,9 +76,8 @@ export function discover(root, config) {
       } else if (entry.isFile() || entry.isSymbolicLink()) {
         if (ignore.some((re) => re.test(rel))) continue;
         if (!isInstructionPath(rel, config)) continue;
-        let text;
-        try { text = readFileSync(abs, "utf8"); } catch { continue; }
-        files.push({ path: rel, text, bytes: Buffer.byteLength(text), lines: countLines(text) });
+        const file = readInstructionFile(abs, rel);
+        if (file) files.push(file);
       }
     }
   };
@@ -88,6 +89,21 @@ export function discover(root, config) {
     for (const e of readdirSync(absRoot, { withFileTypes: true })) if (e.isDirectory()) rootDirs.add(e.name);
   } catch { /* unreadable root: no root dirs */ }
   return { root: absRoot, files, byPath: new Map(files.map((f) => [f.path, f])), rootDirs };
+}
+
+/**
+ * @param {string} abs
+ * @param {string} rel
+ * @returns {InstructionFile | null}
+ */
+function readInstructionFile(abs, rel) {
+  try {
+    const symlink = lstatSync(abs).isSymbolicLink();
+    if (!statSync(abs).isFile()) return null;
+    const buf = readFileSync(abs);
+    const text = buf.toString("utf8");
+    return { path: rel, text, bytes: buf.length, lines: countLines(text), realPath: realpathSync(abs), symlink };
+  } catch { return null; }
 }
 
 /**
@@ -116,9 +132,14 @@ export function resolveReference(fromPath, target, kind) {
  * @param {import("./config.mjs").Config} config
  */
 export function isIgnoredTarget(rel, config) {
-  const first = rel.split("/")[0];
-  if (IGNORED_DIRS.has(first)) return true;
-  return config.ignore.some((g) => { const re = globToRegExp(g); return re.test(rel) || re.test(`${rel}/`); });
+  const parts = rel.split("/");
+  if (parts.some((p) => IGNORED_DIRS.has(p))) return true;
+  const globs = config.ignore.map(globToRegExp);
+  for (let i = 1; i <= parts.length; i += 1) {
+    const prefix = parts.slice(0, i).join("/");
+    if (globs.some((re) => re.test(prefix) || re.test(`${prefix}/`))) return true;
+  }
+  return false;
 }
 
 /**
@@ -164,7 +185,7 @@ export function detectCanonical(repo, config) {
   const ranked = repo.files.slice().sort((a, b) => (inbound.get(b.path) ?? 0) - (inbound.get(a.path) ?? 0) || (a.path === "AGENTS.md" ? -1 : b.path === "AGENTS.md" ? 1 : 0));
   if (ranked.length > 0 && (inbound.get(ranked[0].path) ?? 0) > 0) return { canonical: ranked[0].path, inbound, reason: `${inbound.get(ranked[0].path)} inbound reference(s)` };
   if (repo.byPath.has("AGENTS.md")) return { canonical: "AGENTS.md", inbound, reason: "AGENTS.md exists" };
-  const rootLevel = repo.files.filter((f) => !f.path.includes("/") || f.path.startsWith(".github/") || f.path.startsWith(".claude/"));
+  const rootLevel = repo.files.filter((f) => !f.path.includes("/") || f.path === ".github/copilot-instructions.md" || f.path === ".claude/CLAUDE.md");
   if (rootLevel.length === 1) return { canonical: rootLevel[0].path, inbound, reason: "the only candidate" };
   return { canonical: null, inbound, reason: "no file is referenced by the others" };
 }
@@ -239,23 +260,28 @@ export function claudeLaunchSet(repo) {
   const entries = [];
   /** @type {{ file: string, via: string, line: number }[]} */
   const tooDeep = [];
-  const seen = new Set();
-  /**
-   * @param {string} path
-   * @param {string | null} via
-   * @param {number} depth
-   */
-  const add = (path, via, depth) => {
-    if (seen.has(path)) return;
-    const file = repo.byPath.get(path) ?? readOutside(repo, path);
-    if (!file) return;
-    seen.add(path);
-    entries.push({ file: path, lines: file.lines, via, depth });
-    for (const imp of claudeImports(file.text)) {
-      const resolved = resolveReference(path, imp.target, "import");
-      if (resolved === null || seen.has(resolved)) continue;
-      if (depth + 1 > MAX_DEPTH) { tooDeep.push({ file: resolved, via: path, line: imp.line }); continue; }
-      add(resolved, path, depth + 1);
+  /** @type {Map<string, InstructionFile>} */
+  const loaded = new Map();
+  /** @type {{ path: string, via: string | null, depth: number, line: number }[]} */
+  const queue = [];
+  /** @type {{ file: string, via: string, line: number }[]} */
+  const deep = [];
+  // Breadth-first, so a file reached by two paths is expanded at its
+  // shallowest depth and the four-hop limit is applied to that depth.
+  const drain = () => {
+    while (queue.length > 0) {
+      const next = /** @type {{ path: string, via: string | null, depth: number, line: number }} */ (queue.shift());
+      if (loaded.has(next.path)) continue;
+      if (next.depth > MAX_DEPTH) { deep.push({ file: next.path, via: /** @type {string} */ (next.via), line: next.line }); continue; }
+      const file = repo.byPath.get(next.path) ?? readOutside(repo, next.path);
+      if (!file) continue;
+      loaded.set(next.path, file);
+      entries.push({ file: next.path, lines: file.lines, via: next.via, depth: next.depth });
+      for (const imp of claudeImports(file.text)) {
+        const resolved = resolveReference(next.path, imp.target, "import");
+        if (resolved === null || loaded.has(resolved)) continue;
+        queue.push({ path: resolved, via: next.path, depth: next.depth + 1, line: imp.line });
+      }
     }
   };
   const starts = ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"].filter((p) => repo.byPath.has(p));
@@ -270,7 +296,10 @@ export function claudeLaunchSet(repo) {
     fallback = true;
     starts.push("AGENTS.md");
   }
-  for (const s of starts) add(s, null, 0);
+  for (const s of starts) queue.push({ path: s, via: null, depth: 0, line: 0 });
+  drain();
+  // A target that was loaded by a shorter path is not too deep after all.
+  for (const d of deep) if (!loaded.has(d.file) && !tooDeep.some((t) => t.file === d.file)) tooDeep.push(d);
   return { entries, lines: entries.reduce((n, e) => n + e.lines, 0), fallback, tooDeep };
 }
 
@@ -282,12 +311,7 @@ export function claudeLaunchSet(repo) {
  * @returns {InstructionFile | null}
  */
 function readOutside(repo, rel) {
-  const abs = join(repo.root, ...rel.split("/"));
-  try {
-    if (!statSync(abs).isFile()) return null;
-    const text = readFileSync(abs, "utf8");
-    return { path: rel, text, bytes: Buffer.byteLength(text), lines: countLines(text) };
-  } catch { return null; }
+  return readInstructionFile(join(repo.root, ...rel.split("/")), rel);
 }
 
 /**

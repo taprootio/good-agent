@@ -114,3 +114,18 @@ test("schema rule names match the registry", async () => {
   const schema = JSON.parse(readFileSync(join(REPO, "schema", "config.json"), "utf8"));
   assert.deepEqual(schema.properties.rules.propertyNames.enum, RULE_IDS);
 });
+
+test("--cwd must be a directory; explain rejects extra flags; readBy is modeled; default severities are as designed", async () => {
+  assert.equal(run(["check", "--cwd", "/nonexistent/dir"]).status, 2);
+  assert.equal(run(["inspect", "--cwd", join(FIXTURES, "canonical-detect", "pass", "AGENTS.md")]).status, 2);
+  assert.equal(run(["explain", "links/broken", "--bogus"]).status, 2);
+  assert.equal(run(["explain", "links/broken", "extra"]).status, 2);
+  const j = JSON.parse(run(["inspect", "--json", "--cwd", join(FIXTURES, "codex-size-budget", "empty-override")]).stdout);
+  const agents = j.files.find((/** @type {any} */ f) => f.path === "AGENTS.md");
+  const override = j.files.find((/** @type {any} */ f) => f.path === "AGENTS.override.md");
+  assert.ok(!agents.readBy.includes("codex") && agents.readBy.includes("copilot") && agents.readBy.includes("claude:import"));
+  assert.ok(override.readBy.includes("codex") && !override.readBy.includes("copilot"));
+  const { RULES } = await import("../src/rules/index.mjs");
+  const defaults = Object.fromEntries(RULES.map((r) => [r.id, r.severity]));
+  assert.deepEqual(defaults, { "canonical/detect": "error", "canonical/name": "warn", "codex/size-budget": "error", "claude/import-canonical": "error", "claude/import-depth": "warn", "claude/size": "warn", "links/broken": "error", "copilot/applyto": "error", "dry/copied-canonical": "error" });
+});

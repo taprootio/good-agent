@@ -122,19 +122,20 @@ export function pathsNeedCheck(analysis, paths, configPath) {
  * @param {Analysis} analysis
  */
 export function fileReport(analysis) {
-  const { repo, launch } = analysis;
+  const { repo, launch, chains } = analysis;
+  // Codex reads what its chains select, Claude what the launch set loads;
+  // Copilot's names come from its docs (AGENTS.md anywhere, root CLAUDE.md,
+  // the .github files) and it has no override file.
+  const codexReads = new Set(chains.flatMap((c) => c.entries.map((e) => e.file)));
   /** @param {string} path */
   const readBy = (path) => {
     /** @type {string[]} */
     const tools = [];
-    if (/(^|\/)AGENTS(\.override)?\.md$/.test(path)) tools.push("codex", "copilot");
-    if (/(^|\/)(CLAUDE\.md|CLAUDE\.local\.md)$/.test(path) || /\.claude\/(CLAUDE\.md|rules\/)/.test(path)) tools.push("claude");
-    if (path === "CLAUDE.md") tools.push("copilot");
-    if (path.startsWith(".github/")) tools.push("copilot");
-    const viaImport = launch.entries.find((e) => e.file === path && e.via);
-    if (viaImport) tools.push(`claude:import(${viaImport.via})`);
-    if (launch.fallback && path === "AGENTS.md") tools.push("claude:fallback");
-    return [...new Set(tools)];
+    if (codexReads.has(path)) tools.push("codex");
+    const entry = launch.entries.find((e) => e.file === path);
+    if (entry) tools.push(entry.via ? "claude:import" : launch.fallback && path === "AGENTS.md" ? "claude:fallback" : "claude");
+    if (/(^|\/)AGENTS\.md$/.test(path) || path === "CLAUDE.md" || path === ".github/copilot-instructions.md" || /^\.github\/instructions\/.+\.instructions\.md$/.test(path)) tools.push("copilot");
+    return tools;
   };
   return repo.files.map((f) => ({ path: f.path, bytes: f.bytes, lines: f.lines, readBy: readBy(f.path) }));
 }

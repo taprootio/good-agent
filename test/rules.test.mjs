@@ -22,7 +22,7 @@ function cases() {
 }
 
 /** @param {{ rule: string, file: string, line?: number, severity?: string, generatedBy?: string }} f */
-const key = (f) => `${f.rule}@${f.file}${f.line ? `:${f.line}` : ""}${f.severity === "info" ? "#info" : ""}${f.generatedBy ? `[${f.generatedBy}]` : ""}`;
+const key = (f) => `${f.rule}@${f.file}${f.line ? `:${f.line}` : ""}#${f.severity ?? "?"}${f.generatedBy ? `[${f.generatedBy}]` : ""}`;
 
 for (const dir of cases()) {
   test(`fixture ${dir.slice(FIXTURES.length + 1)}`, () => {
@@ -32,7 +32,7 @@ for (const dir of cases()) {
     const j = JSON.parse(r.stdout);
     assert.equal(r.status, expected.exitCode, `exit code; findings: ${JSON.stringify(j.findings.map(key))}`);
     assert.equal(j.summary.exitCode, expected.exitCode);
-    const actual = j.findings.map((/** @type {any} */ f) => ({ rule: f.rule, file: f.file, line: f.line, severity: f.severity === "info" ? "info" : undefined, generatedBy: f.generatedBy })).map(key).sort();
+    const actual = j.findings.map((/** @type {any} */ f) => ({ rule: f.rule, file: f.file, line: f.line, severity: f.severity, generatedBy: f.generatedBy })).map(key).sort();
     const want = expected.findings.map((/** @type {any} */ f) => key({ ...f, line: f.line })).sort();
     // expected.json may omit the line; compare on what it states
     const loose = actual.map((a, i) => (want[i] && !want[i].includes(":") ? a.replace(/:\d+/, "") : a));

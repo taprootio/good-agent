@@ -3,6 +3,7 @@
   "findings": [
     {
       "rule": "codex/size-budget",
+      "severity": "error",
       "file": "AGENTS.md",
       "line": 124
     }

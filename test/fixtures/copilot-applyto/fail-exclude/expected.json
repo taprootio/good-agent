@@ -3,6 +3,7 @@
   "findings": [
     {
       "rule": "copilot/applyto",
+      "severity": "error",
       "file": ".github/instructions/cs.instructions.md",
       "line": 1
     }

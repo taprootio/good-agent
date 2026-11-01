@@ -3,14 +3,17 @@
   "findings": [
     {
       "rule": "canonical/detect",
+      "severity": "error",
       "file": "GUIDE.md"
     },
     {
       "rule": "canonical/name",
+      "severity": "warn",
       "file": "GUIDE.md"
     },
     {
       "rule": "claude/import-canonical",
+      "severity": "error",
       "file": "CLAUDE.md",
       "line": 1
     }

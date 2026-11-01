@@ -25,7 +25,7 @@ export default {
     /** @type {import("../types.mjs").Finding[]} */
     const out = [];
     for (const f of ctx.repo.files) {
-      if (f.path === canonical) continue;
+      if (f.path === canonical || f.realPath === canonFile.realPath) continue;
       const mine = substantiveLines(f.text);
       if (mine.length < 5) continue;
       const shared = mine.filter((l) => canon.has(l)).length;

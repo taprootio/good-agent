@@ -28,12 +28,11 @@ export function stripCode(src) {
     if (open && !(open[1][0] === "`" && line.slice(open[0].length).includes("`"))) {
       fence = { char: open[1][0], length: open[1].length };
       lines[i] = " ".repeat(line.length);
-      continue;
     }
-    // Inline code spans: a run of N backticks closes with the same run.
-    lines[i] = line.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (m) => " ".repeat(m.length));
   }
-  return lines.join("\n");
+  // Inline code spans may span lines: a run of N backticks closes with the
+  // same run. Blank them across the whole text, keeping newlines.
+  return lines.join("\n").replace(/(?<!`)(`+)(?!`)([\s\S]*?)(?<!`)\1(?!`)/g, (m) => m.replace(/[^\n]/g, " "));
 }
 
 /**
@@ -70,6 +69,7 @@ export function countLines(src) {
  * @returns {{ data: FrontMatter, bodyStart: number, errors: string[] } | null}
  */
 export function parseFrontMatter(src) {
+  if (src.charCodeAt(0) === 0xfeff) src = src.slice(1);
   if (!src.startsWith("---\n") && !src.startsWith("---\r\n")) return null;
   const lines = src.split("\n");
   let end = -1;
@@ -141,6 +141,7 @@ export function markdownLinks(src) {
   for (;;) {
     const at = clean.indexOf("](", from);
     if (at < 0) break;
+    if (!hasOpeningBracket(clean, at)) { from = at + 2; continue; }
     let i = at + 2;
     while (clean[i] === " " || clean[i] === "\t") i += 1;
     let raw = "";
@@ -162,16 +163,44 @@ export function markdownLinks(src) {
       }
       raw = clean.slice(start, i).replace(/\\([()\s])/g, "$1");
     }
-    // optional title, then the closing parenthesis
-    const rest = clean.slice(i).match(/^\s*(?:"[^"\n]*"|'[^'\n]*')?\s*\)/);
+    // optional title (quoted or parenthesized), then the closing parenthesis
+    const rest = clean.slice(i).match(/^\s*(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))?\s*\)/);
     from = at + 2;
     if (!rest || raw === "") continue;
     if (/^(https?:|mailto:|#)/i.test(raw)) continue;
-    const target = raw.replace(/#.*$/, "");
+    const target = decodeTarget(raw.replace(/#.*$/, ""));
     if (!target) continue;
     out.push({ target, line: lineOf(clean, at), raw });
   }
   return out;
+}
+
+/**
+ * Percent-decode a local link destination; a malformed escape is kept as
+ * written.
+ * @param {string} target
+ */
+function decodeTarget(target) {
+  if (!target.includes("%")) return target;
+  try { return decodeURIComponent(target); } catch { return target; }
+}
+
+/**
+ * Whether the `]` at `index` closes a link label: an unescaped `[` with
+ * balanced nesting earlier in the same paragraph.
+ * @param {string} text
+ * @param {number} index  position of "]("
+ */
+function hasOpeningBracket(text, index) {
+  let depth = 0;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const c = text[i];
+    if (c === "\n" && text[i - 1] === "\n") return false;
+    if (i > 0 && text[i - 1] === "\\") continue;
+    if (c === "]") depth += 1;
+    else if (c === "[") { if (depth === 0) return true; depth -= 1; }
+  }
+  return false;
 }
 
 /**

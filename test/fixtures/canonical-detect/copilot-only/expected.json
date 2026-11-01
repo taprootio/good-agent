@@ -1,0 +1,15 @@
+{
+  "exitCode": 1,
+  "findings": [
+    {
+      "rule": "canonical/name",
+      "severity": "warn",
+      "file": ".github/copilot-instructions.md"
+    },
+    {
+      "rule": "claude/import-canonical",
+      "severity": "error",
+      "file": ".github/copilot-instructions.md"
+    }
+  ]
+}

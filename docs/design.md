@@ -392,9 +392,9 @@ good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
   docs: https://developers.openai.com/codex/guides/agents-md
 
 ▲ AGENTS.md  claude/size
-  590 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
+  589 lines, loaded at launch through the @AGENTS.md import in CLAUDE.md;
   the docs recommend under 200 lines per file because longer files reduce
-  adherence. Launch set: CLAUDE.md 29 + AGENTS.md 590 = 619 lines.
+  adherence. Launch set: CLAUDE.md 28 + AGENTS.md 589 = 617 lines.
   fix: Move reference material into docs/ linked by path (not @-imported), or
   into skills and path-scoped .claude/rules that load on demand.
   docs: https://code.claude.com/docs/en/memory
@@ -414,8 +414,8 @@ with the numbers, the fix, the doc. The file line is first so editors and
   "root": "/Users/jereme/src/taproot",
   "canonical": "AGENTS.md",
   "files": [
-    { "path": "AGENTS.md", "bytes": 34348, "lines": 590, "readBy": ["codex", "copilot", "claude:import"] },
-    { "path": "CLAUDE.md", "bytes": 1575, "lines": 29, "readBy": ["claude", "copilot"] }
+    { "path": "AGENTS.md", "bytes": 34348, "lines": 589, "readBy": ["codex", "claude:import", "copilot"] },
+    { "path": "CLAUDE.md", "bytes": 1575, "lines": 28, "readBy": ["claude", "copilot"] }
   ],
   "findings": [
     {
@@ -442,7 +442,7 @@ what each tool loads:
 ```json
 {
   "codex": { "chains": [ { "dir": ".", "files": ["AGENTS.md"], "bytes": 34348, "limit": 32768, "truncatedAt": 32768 } ] },
-  "claude": { "launch": [ { "file": "CLAUDE.md", "lines": 29 }, { "file": "AGENTS.md", "lines": 590, "via": "CLAUDE.md" } ], "lines": 619, "limit": 200 },
+  "claude": { "launch": [ { "file": "CLAUDE.md", "lines": 28 }, { "file": "AGENTS.md", "lines": 589, "via": "CLAUDE.md" } ], "lines": 617, "limit": 200 },
   "copilot": { "repoWide": ".github/copilot-instructions.md", "pathSpecific": [ { "file": ".github/instructions/proto.instructions.md", "applyTo": "**/*.proto" } ] }
 }
 ```
