@@ -219,9 +219,10 @@ Checked against `registry.npmjs.org` on 2026-11-01.
    until an AI tool opens them. Imports do cost context, so `@` is for the
    canonical file only.
 4. **Budgets are per tool, and the tools disagree.** Codex: 32 KiB combined
-   along the directory chain. Claude: about 200 lines loaded at launch
-   including imports. Copilot: no hard limit. The guard reports against each
-   tool's own number.
+   along the directory chain. Claude: under 200 lines per file for every
+   file it loads at launch, imports included; no combined number is
+   documented and none is enforced. Copilot: no hard limit. The guard
+   reports against each tool's own number.
 5. **Nothing points at what is gone.** Links, imports, repo paths and npm
    scripts named in instruction files must exist.
 
@@ -256,7 +257,7 @@ the fact it rests on, and the decision on the candidate list from the brief.
 | `canonical/name` | warn | v0.1 | The canonical file is named `AGENTS.md`. Otherwise Codex (only `AGENTS.md` and user-configured fallbacks) and Copilot (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) see only a written pointer. Fix: rename and keep `CLAUDE.md` as `@AGENTS.md`. |
 | `codex/size-budget` | error | v0.1 | For every directory that holds an `AGENTS.md` or `AGENTS.override.md`, the chain from the repo root to that directory (one file per directory, override preferred) totals at most `limits.codexBytes` (32,768). The finding names the file that gets cut, the byte and line where the cut lands, the heading it lands in, and how many bytes never load. Source: `agents_md.rs` truncation loop. |
 | `claude/import-canonical` | error | v0.1 | If `CLAUDE.md` (or `.claude/CLAUDE.md`) exists and the canonical file is a different file, it contains an `@<canonical>` import outside code spans. A Markdown link is not enough. If there is no `CLAUDE.md` and the canonical file is not `AGENTS.md`, that is an error too (Claude loads nothing). If there is no `CLAUDE.md` and the canonical file is `AGENTS.md`, that is `info`: Claude Code 2.1.277+ reads it, older versions do not. |
-| `claude/size` | warn | v0.1 | The launch set is what Claude Code loads at startup: `CLAUDE.md` or `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` without `paths`, and their `@` imports to four hops, each file once; with no `CLAUDE.md` at all, `AGENTS.md` (the documented fallback). Warn for **each file** in that set over `limits.claudeLines` (200), which is the documented per-file target; the combined total is reported as `info` because the docs say a combined warning exists but give no number. Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding names the file, how it reaches the launch set (directly or via which import), and its line count. |
+| `claude/size` | warn | v0.1 | The launch set is what Claude Code loads at startup: `CLAUDE.md` or `.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/*.md` without `paths`, and their `@` imports to four hops, each file once; with no `CLAUDE.md` at all, `AGENTS.md` (the documented fallback). Warn for **each file** in that set over `limits.claudeLines` (200), which is the documented per-file target. When no file is over the target but the launch set together is, one `info` finding reports the total, because the docs say a combined warning exists but give no number; a clean repo gets no finding at all. Claude Code warns about this itself at startup, so this is a warning, not an error; it exists so CI sees it. The finding names the file, how it reaches the launch set (directly or via which import), and its line count. |
 | `links/broken` | error | v0.1 | Every relative Markdown link and every `@` import in an instruction file resolves to an existing path. Fragments are stripped; `http(s)`, `mailto` and `#` anchors are skipped; `~/` and absolute imports are skipped (they are outside the repo). Imports are resolved relative to the containing file, as the Claude docs say. A broken import is called out separately because Claude "silently loads nothing for it." |
 | `claude/import-depth` | warn | v0.1 | An import chain deeper than four hops; the docs say files past that are not loaded. Cheap to check while resolving `links/broken`. |
 | `copilot/applyto` | error | v0.1 | Every `.github/instructions/*.instructions.md` starts with front matter containing `applyTo`; `excludeAgent`, if present, is `code-review` or `cloud-agent`. Without `applyTo` Copilot never attaches the file. |
@@ -470,7 +471,9 @@ tool's own configured default. The shipped defaults are the values shown,
 which are Taproot's owner decisions from September 2026.
 
 A rule value is a severity string (`error`, `warn`, `info`, `off`) or an
-object with `severity` and rule-specific options. `limits` are the numbers
+object whose only allowed key in v0.1 is `severity`; any other key is an
+exit 2. Rule-specific options arrive with the rules that need them (v0.2)
+and are listed per rule when they do. `limits` are the numbers
 that come from tool docs; changing them is how a team that sets
 `project_doc_max_bytes = 65536` in every `~/.codex/config.toml` tells the
 guard so. `version` lets a future schema change be detected and explained
@@ -585,7 +588,9 @@ a link target of one, or the config file in effect (default or `--config`),
 so the hook costs nothing on ordinary commits. NUL-delimited paths keep a
 filename with a space as one argument, and `xargs -r` (accepted by GNU and
 BSD xargs) runs nothing on an empty commit. With `lint-staged` the
-equivalent entry is `"*.md": "good-agent check"`.
+equivalent entry is `"*": "good-agent check"`: every staged path goes to
+`check`, whose own filter decides, so a config-only or link-target-only
+commit is not missed.
 
 ### GitHub Actions
 
@@ -677,7 +682,9 @@ trees.
   is the primary page and the only one human output prints), `src/report.mjs`
   (human and JSON), `src/review.mjs` (the runner, section 12),
   `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task` and
-  `review-loop`, `prompts/review-{diff,story,plan,design}.md`,
+  `review-loop`, with the four review prompts at
+  `skill/review-loop/references/review-{diff,story,plan,design}.md` so
+  they install with the skill,
   `schema/config.json`, `schema/findings.json`, `alias/package.json`,
   `CHANGELOG.md`, `test/`, `docs/`.
 - **Language**: plain ESM `.mjs` with `// @ts-check` and JSDoc types, like
@@ -798,8 +805,12 @@ repo can link to.
    repeat until `[]`, caps, design review on non-convergence, and the one
    durable record (round count, findings, independence) that goes into the
    task closeout. No model names in durable records.
-   The prompts the loop uses are files in `prompts/` that a human, a tool's
-   own subagent and the runner all read. Each is a body (the facts to
+   The prompts the loop uses live in the `review-loop` skill's
+   `references/` folder, so every installed copy of the skill carries them
+   and a human, a tool's own subagent and the runner all read the same
+   files. The plan prompt reads the plan from a `## Plan` section the
+   `work-task` skill writes into the task file before asking for review, so
+   `--task` is the only input and the history id stays the task's. Each is a body (the facts to
    review, the severity semantics, the two passes, and the "close the room
    for hedging" prohibitions from Taproot's section 8) plus one of two
    endings the caller appends: the manual ending asks for a fenced JSON
