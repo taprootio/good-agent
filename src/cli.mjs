@@ -43,6 +43,9 @@ from the repository root down to its working directory, and a link starting
 with / resolves from the root, so run from the repository root to validate the
 whole Codex chain and root-relative links.
 
+Inside a git work tree, files that git ignores are not checked unless named as
+a path; outside one every directory is walked.
+
 review runs a fresh read-only review by the other AI tool and prints the
 findings (flags and exit codes: docs/review-runner.md).
 
@@ -118,9 +121,9 @@ function runCheck(args, out, err) {
   const root = rootDir(values.cwd);
   const { config, path: configPath } = loadConfig(root, { explicitPath: values.config, knownRuleIds: RULE_IDS });
   for (const id of [...values.rule, ...values["no-rule"]]) if (!ruleById(id)) throw new UsageError(`unknown rule id "${id}" (run \`good-agent rules\`)`);
-  const analysis = analyze(root, config);
   const relConfig = configPath ? toPosix(relative(root, configPath)) : null;
   const paths = positionals.map((p) => toPosix(relative(root, resolve(root, p))));
+  const analysis = analyze(root, config, { include: paths });
   if (positionals.length > 0 && !pathsNeedCheck(analysis, paths, relConfig)) {
     if (values.json) out(JSON.stringify({ version: VERSION, root, nothingToCheck: true, paths, summary: { errors: 0, warnings: 0, info: 0, exitCode: 0 } }, null, 2));
     else out(`good-agent ${VERSION} · nothing to check (${positionals.length} path${positionals.length === 1 ? "" : "s"} given, none is an instruction file, a link target, or the config)`);

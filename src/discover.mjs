@@ -5,6 +5,7 @@
  * (docs/design.md sections 2, 4.1 and the rule table).
  */
 import { readdirSync, readFileSync, existsSync, statSync, lstatSync, realpathSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
 import { join, dirname, resolve, relative, sep, posix } from "node:path";
 import { claudeImports, markdownLinks, parseFrontMatter, countLines } from "./markdown.mjs";
 import { globToRegExp, defaultConfig } from "./config.mjs";
@@ -35,6 +36,7 @@ const ROOT_ONLY = /^(\.github\/copilot-instructions\.md|\.github\/instructions\/
  * @property {InstructionFile[]} files
  * @property {Map<string, InstructionFile>} byPath
  * @property {Set<string>} rootDirs
+ * @property {"git" | "walk"} source  how candidates were enumerated
  */
 
 /**
@@ -53,15 +55,59 @@ export function toPosix(p) {
 }
 
 /**
+ * The files git lists under `absRoot`: tracked files and untracked files that
+ * no ignore rule covers (`git ls-files --cached --others --exclude-standard
+ * -z`), as root-relative POSIX paths. Null when git cannot answer, so the
+ * caller walks the directory instead: git is missing, the root is not inside
+ * a work tree, or the root is itself an ignored directory (git would list
+ * nothing under it). Nested repositories, submodules and per-session
+ * worktrees, are listed as one directory entry at most and never entered.
+ * @param {string} absRoot
+ * @returns {string[] | null}
+ */
+export function gitCandidates(absRoot) {
+  try {
+    const ignoredRoot = spawnSync("git", ["-C", absRoot, "check-ignore", "-q", "."], { stdio: "ignore" });
+    if (ignoredRoot.error || ignoredRoot.status === 0) return null;
+    const listing = execFileSync("git", ["-C", absRoot, "ls-files", "--cached", "--others", "--exclude-standard", "-z"], { encoding: "buffer", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 256 * 1024 * 1024 });
+    return [...new Set(listing.toString("utf8").split("\0").filter((p) => p !== ""))];
+  } catch { return null; }
+}
+
+/**
+ * Find the instruction files under `root`. Inside a git work tree the
+ * candidates come from git, so ignored files are not checked; otherwise the
+ * directory is walked. `node_modules` and the other installed or generated
+ * directories and the config `ignore` globs apply either way. `include`
+ * lists root-relative paths given on the command line: an instruction file
+ * among them is checked even when git ignores it.
  * @param {string} root
  * @param {import("./config.mjs").Config} config
+ * @param {{ include?: string[] }} [options]
  * @returns {Repo}
  */
-export function discover(root, config) {
+export function discover(root, config, options = {}) {
   const absRoot = resolve(root);
   const ignore = config.ignore.map(globToRegExp);
+  /** @param {string} rel  a directory, without a trailing slash */
+  const dirIgnored = (rel) => ignore.some((re) => re.test(rel) || re.test(`${rel}/`));
+  /** @param {string} rel  a file */
+  const fileIgnored = (rel) => {
+    const dirs = rel.split("/").slice(0, -1);
+    return dirs.some((name, i) => IGNORED_DIRS.has(name) || dirIgnored(dirs.slice(0, i + 1).join("/"))) || ignore.some((re) => re.test(rel));
+  };
   /** @type {InstructionFile[]} */
   const files = [];
+  const seen = new Set();
+  /**
+   * @param {string} abs
+   * @param {string} rel
+   */
+  const add = (abs, rel) => {
+    if (seen.has(rel) || !isInstructionPath(rel, config)) return;
+    const file = readInstructionFile(abs, rel);
+    if (file) { seen.add(rel); files.push(file); }
+  };
   /** @param {string} dir */
   const walk = (dir) => {
     /** @type {import("node:fs").Dirent[]} */
@@ -71,25 +117,29 @@ export function discover(root, config) {
       const abs = join(dir, entry.name);
       const rel = toPosix(relative(absRoot, abs));
       if (entry.isDirectory()) {
-        if (IGNORED_DIRS.has(entry.name)) continue;
-        if (ignore.some((re) => re.test(rel) || re.test(`${rel}/`))) continue;
+        if (IGNORED_DIRS.has(entry.name) || dirIgnored(rel)) continue;
         walk(abs);
       } else if (entry.isFile() || entry.isSymbolicLink()) {
-        if (ignore.some((re) => re.test(rel))) continue;
-        if (!isInstructionPath(rel, config)) continue;
-        const file = readInstructionFile(abs, rel);
-        if (file) files.push(file);
+        if (!ignore.some((re) => re.test(rel))) add(abs, rel);
       }
     }
   };
-  walk(absRoot);
+  const candidates = gitCandidates(absRoot);
+  if (candidates) {
+    for (const rel of candidates) if (!fileIgnored(rel)) add(join(absRoot, ...rel.split("/")), rel);
+  } else {
+    walk(absRoot);
+  }
+  for (const rel of options.include ?? []) {
+    if (rel !== "" && !rel.startsWith("../") && rel !== ".." && !fileIgnored(rel)) add(join(absRoot, ...rel.split("/")), rel);
+  }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   /** @type {Set<string>} */
   const rootDirs = new Set();
   try {
     for (const e of readdirSync(absRoot, { withFileTypes: true })) if (e.isDirectory()) rootDirs.add(e.name);
   } catch { /* unreadable root: no root dirs */ }
-  return { root: absRoot, files, byPath: new Map(files.map((f) => [f.path, f])), rootDirs };
+  return { root: absRoot, files, byPath: new Map(files.map((f) => [f.path, f])), rootDirs, source: candidates ? "git" : "walk" };
 }
 
 /**

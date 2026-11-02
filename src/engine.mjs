@@ -38,10 +38,11 @@ export const VERSION = /** @type {{ version: string }} */ (JSON.parse(readFileSy
 /**
  * @param {string} root
  * @param {import("./config.mjs").Config} config
+ * @param {{ include?: string[] }} [options]  root-relative paths given on the command line
  * @returns {Analysis}
  */
-export function analyze(root, config) {
-  const repo = discover(root, config);
+export function analyze(root, config, options = {}) {
+  const repo = discover(root, config, options);
   return { repo, config, canonical: detectCanonical(repo, config), chains: codexChains(repo), launch: claudeLaunchSet(repo, config) };
 }
 

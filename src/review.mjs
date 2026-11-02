@@ -426,6 +426,43 @@ function isInside(parent, child) {
 /** 35791 minutes is the largest whole number that fits setTimeout's 2^31-1 milliseconds. */
 export const MAX_TIMEOUT_MINUTES = 35791;
 
+/** Output lines kept as the cause of a failed reviewer, and the tail used when none mention an error. */
+const CAUSE_LINES = 10;
+const TAIL_LINES = 20;
+const LINE_CUT = 600;
+
+/**
+ * The lines printed under `REVIEW_ERROR` when a reviewer exits non-zero: what
+ * it reported (standard error then standard output, the last ten distinct lines
+ * that mention an error, else the last twenty lines of standard error, or of
+ * standard output when standard error is blank), the model and effort that
+ * were passed and where the model came from, and a hint when the model was
+ * refused. The full output stays in the round's log.
+ * @param {{ reviewer: "codex" | "claude", stdout: string, stderr: string, model: string | undefined, modelSource: "flag" | "config" | null, effort: string }} o
+ * @returns {string[]}
+ */
+export function failureDetail(o) {
+  /** @param {string} text */
+  const lines = (text) => text.split("\n").map((l) => l.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trimEnd()).filter((l) => l.trim() !== "");
+  const cut = (/** @type {string} */ l) => (l.length > LINE_CUT ? `${l.slice(0, LINE_CUT)}...` : l);
+  const err = lines(o.stderr);
+  const out = lines(o.stdout);
+  const causes = [...new Set([...err, ...out].filter((l) => /error/i.test(l)))].slice(-CAUSE_LINES);
+  const shown = causes.length > 0 ? causes : (err.length > 0 ? err : out).slice(-TAIL_LINES);
+  const source = o.modelSource === "flag" ? "--model" : `review.${o.reviewer}.model in good-agent.config.json, or the built-in default`;
+  const fallback = o.reviewer === "codex" ? "a model set in ~/.codex/config.toml, else Codex's built-in default" : "the CLI's built-in default";
+  const detail = [
+    ...(shown.length > 0 ? ["  the reviewer reported:", ...shown.map((l) => `    ${cut(l)}`)] : ["  the reviewer printed nothing; see the log"]),
+    o.model ? `  model: ${o.model} (${source}), effort: ${o.effort}` : `  model: none passed; ${o.reviewer}'s own default applies (${fallback}), effort: ${o.effort}`,
+  ];
+  if (/model_not_found|model is not supported/.test(`${o.stderr}\n${o.stdout}`)) {
+    detail.push(`  hint: the model was refused; set review.${o.reviewer}.model in good-agent.config.json or pass --model with one this login accepts`);
+    // An outdated Codex CLI refuses a model a current one accepts.
+    if (o.reviewer === "codex") detail.push("  hint: an outdated Codex CLI also refuses newer models; check `codex --version` and `codex debug models`");
+  }
+  return detail;
+}
+
 const FLAG_REJECTED = /unexpected argument|unknown option|unrecognized (option|argument)|invalid value|unknown flag|missing required/i;
 
 /**
@@ -534,6 +571,7 @@ async function review(args, out, err) {
   }
   const toolConfig = config.review[reviewer];
   const model = values.model ?? toolConfig.model ?? undefined;
+  const modelSource = values.model !== undefined ? "flag" : toolConfig.model ? "config" : null;
   const effort = values.effort ?? toolConfig.effort;
   for (const [flag, value] of [["--model", model], ["--effort", effort]]) {
     if (value !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/.test(value)) throw new ReviewUsageError(`${flag} "${value}" contains characters a model or effort name does not use`);
@@ -563,7 +601,7 @@ async function review(args, out, err) {
     const taskLabel = subject.label ?? id;
     const dir = join(reviews, repoSlug(root));
     const meta = {
-      version: VERSION, reviewer, author: values.author ?? null, model: model ?? null, effort, cli: cliVersion, root,
+      version: VERSION, reviewer, author: values.author ?? null, model: model ?? null, model_source: modelSource, effort, cli: cliVersion, root,
       base: values.base ?? null, base_sha: baseSha, head: git(root, ["rev-parse", "HEAD"]), task: values.task ?? null, verified: values.verified, attempt: 1,
     };
     const round = reserveRound(dir, id, prompt, meta);
@@ -636,7 +674,9 @@ async function review(args, out, err) {
       if (result.status !== 0) {
         const rejectedLine = result.stderr.split("\n").find((l) => FLAG_REJECTED.test(l));
         const rejected = rejectedLine ? ` (a flag was rejected: ${rejectedLine.trim()})` : "";
-        return fail("REVIEW_ERROR", `${reviewer} exited ${result.status ?? `on ${result.signal}`}${rejected}`);
+        const code = fail("REVIEW_ERROR", `${reviewer} exited ${result.status ?? `on ${result.signal}`}${rejected}`);
+        for (const line of failureDetail({ reviewer, stdout: result.stdout, stderr: result.stderr, model, modelSource, effort })) err(line);
+        return code;
       }
       /** @type {unknown} */
       let output;
