@@ -113,4 +113,6 @@ Tell the owner: the branch name, what shipped, the review outcome, the
 decisions taken under step 3, and the commands to push and open the pull
 request (the repository's `attribution` policy applies to the message). Run
 the `open-pr` skill to prepare the pull request, including whether it needs
-a version bump. Do not push, publish or merge; those are the owner's.
+a version bump; it pushes and opens the pull request only on the owner's
+go-ahead for that pull request. Otherwise do not push, publish or merge;
+those are the owner's.
