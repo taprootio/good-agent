@@ -83,8 +83,9 @@ package manifest.
   internal docs, the backlog and CI-only changes do not.
 - **Changelog check.** A change to shipped behaviour with no `Unreleased`
   entry gets one, in the repository's changelog format, committed on the
-  branch, with the applicable gates run again. This holds whether or not
-  the pull request turns out to be a release.
+  branch, with the applicable gates run again and the review loop rerun on
+  the updated diff (section 1 says how). This holds whether or not the
+  pull request turns out to be a release.
 - **Stop and ask.** When shipped behaviour changed (or `Unreleased` gained
   entries) and the version did not move, do not guess and do not bump on
   your own. Ask the owner, once and plainly: "This changes shipped
@@ -98,7 +99,8 @@ package manifest.
     it if the changelog keeps one. Update any status line that names the
     version (a README install line, a version line in the design document,
     a pinned `npx <name>@<minor>` in the docs). Commit the bump as its own
-    commit, and rerun the gates.
+    commit, rerun the gates, and rerun the review loop on the updated diff
+    (section 1 says how).
   - **No, deliberately not a release.** Record that in the PR body in a
     sentence: the version stays `<x>` and the changes wait under
     `Unreleased` for a later release.
@@ -148,7 +150,8 @@ commits.
 ## 5. Open it, after approval
 
 Confirm `git status --short` is empty (every edit from the steps above is
-committed), then show the owner the branch, its head, the bump decision and
+committed) and that the review loop has been rerun on the final diff if any
+commit was made in sections 1 to 4, then show the owner the branch, its head, the bump decision and
 the drafted title and body. Pushing and opening are the owner's go-ahead, in this
 conversation, for this pull request; an approval for an earlier push does
 not carry over. After the go-ahead, push the branch, open the pull request
