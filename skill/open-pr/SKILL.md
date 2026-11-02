@@ -66,7 +66,8 @@ package manifest.
 - **Look at what the diff touches.** `git diff --name-status <base>...HEAD`
   against what the package publishes: the manifest's `files` list, its
   `bin` and `exports` entries, and the directories they name (in
-  good-agent: `src/`, `scripts/`, `skill/`, `schema/`, `alias/`). Also look
+  good-agent: `src/`, `scripts/`, `skill/`, `schema/`; `alias/` is a
+  separate package with its own manifest). Also look
   for entries added under the changelog's `Unreleased` heading. Shipped
   behaviour changed when the diff touches published files in a way a
   consumer of the package can observe: code, a rule or its limit, the
