@@ -136,8 +136,12 @@ versioning and say that you did.
 
 ## 4. Write the PR body
 
-Use the repository's pull request template or the conventions in its
-instruction file; where there are none, these sections, in plain prose:
+Use the repository's pull request template and the conventions in its
+instruction file; where there are none, use the sections below, in plain
+prose. A template does not drop what follows: fit the review record and
+the release outcome into its sections, or add them under their own
+headings. The title follows the repository's format (Trellis:
+`<ID>: imperative summary`, at most 72 characters).
 
 - **What changed.** The behaviour a reader gets, not the file list. Name the
   task or issue id.
