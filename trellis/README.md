@@ -11,7 +11,6 @@ generated; do not hand-edit between the markers — edit the per-item files in
 
 | ID | Title | Owner | Priority | Effort |
 | --- | --- | --- | --- | --- |
-| [GA0008](active/GA0008.md) | Make `good-agent check` honour .gitignore | je | High | 3 |
 | [GA0006](active/GA0006.md) | Adopt good-agent in taproot and taproot-controls and remove the duplicates | je | Medium | 8 |
 | [GA0007](active/GA0007.md) | Remove the work-task playbook from Trellis in favour of good-agent | je | Medium | 2 |
 
