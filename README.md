@@ -192,7 +192,10 @@ keyed by `--author`; the model and effort come from the per-tool `review`
 block. Without `--json` it prints each finding (file, line, severity,
 suggestion) and the count; with it, the bare findings array. Exit codes:
 0 clean (`[]`), 1 findings, 2 usage or config error, 3 the review is unsafe
-(the tree changed while the reviewer ran) or the reviewer failed.
+(the tree changed while the reviewer ran) or the reviewer failed. When the
+reviewer fails, the runner prints the cause from its output, the log path,
+and the model and effort it passed, with a hint to set `review.codex.model`
+(or `review.claude.model`) or `--model` when the model was refused.
 
 Rounds, metadata and logs are kept outside the tree in
 `~/.config/good-agent/reviews/` (`GOOD_AGENT_REVIEWS` overrides it). Several

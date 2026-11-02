@@ -6,6 +6,17 @@ shape and the config schema are the public API (docs/design.md section 8):
 a new rule ships at `warn` or `info` in a minor version and becomes `error`
 only in a major; a limit changes in a minor with the doc link and date here.
 
+## Unreleased
+
+### Changed
+
+- `good-agent review` explains a reviewer failure. When the reviewer exits
+  non-zero it prints the lines of its output that report the error, the model
+  and effort passed and where the model came from (or that Codex's own
+  default applied), and a hint to set `review.codex.model`,
+  `review.claude.model` or `--model` when the model is refused
+  (`model_not_found`). `.meta.json` gains `model_source`. (GA0009)
+
 ## 0.1.0 (2026-11-01)
 
 First release.

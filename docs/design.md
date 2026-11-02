@@ -899,7 +899,11 @@ repo can link to.
    Codex reviewing, five with Claude) apply per prompt type and count only
    completed rounds: a round whose reviewer failed or whose tree moved
    keeps its number, records the failure in its `.meta.json`, and does not
-   count toward the cap.
+   count toward the cap. When the reviewer exits non-zero the runner also
+   prints what the reviewer reported, the model and effort passed and where
+   the model came from, and a hint when the model was refused
+   (`model_not_found`), so the cause is on the terminal and not only in the
+   log (GA0009; `docs/review-runner.md` has the details).
    The reviews directory is keyed by the repository, not the worktree:
    `<repo-slug>` is a name (the main worktree's directory, or the module name
    for a submodule) plus a short hash of the absolute git common directory
