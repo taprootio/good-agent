@@ -37,12 +37,14 @@ check options:
 
 With paths, check runs only when one of them is an instruction file, a file an
 instruction file links to or imports, or the config file; otherwise it prints
-"nothing to check" and exits 0. Inside a git work tree, files that git ignores
-are not checked unless named as a path; outside one every directory is walked. good-agent checks the directory it runs in (or
+"nothing to check" and exits 0. good-agent checks the directory it runs in (or
 --cwd) and never walks up to the git top level: Codex loads AGENTS.md files
 from the repository root down to its working directory, and a link starting
 with / resolves from the root, so run from the repository root to validate the
 whole Codex chain and root-relative links.
+
+Inside a git work tree, files that git ignores are not checked unless named as
+a path; outside one every directory is walked.
 
 review runs a fresh read-only review by the other AI tool and prints the
 findings (flags and exit codes: docs/review-runner.md).
