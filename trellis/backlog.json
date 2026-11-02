@@ -6,9 +6,9 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0008",
+  "nextId": "GA0010",
   "counts": {
-    "active": 2,
+    "active": 3,
     "completed": 5,
     "removed": 0
   },
@@ -42,6 +42,20 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Once good-agent is released, delete Trellis's own work-task playbook and MCP prompt and point its code-review and pr-draft playbooks at good-agent's review-loop skill, so the loop has one home."
+    },
+    {
+      "id": "GA0009",
+      "title": "Show why a reviewer failed in `good-agent review`",
+      "status": "active",
+      "milestone": "Beta",
+      "priority": "High",
+      "effort": 2,
+      "depends_on": [
+        "GA0004"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "When a reviewer exits non-zero, print the cause from its output, the round's log path, and the model, effort and where the model came from, with a hint for a refused model, instead of only \"codex exited 1\"."
     },
     {
       "id": "GA0001",
