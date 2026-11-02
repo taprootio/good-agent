@@ -8,27 +8,11 @@
   ],
   "nextId": "GA0011",
   "counts": {
-    "active": 2,
-    "completed": 8,
+    "active": 1,
+    "completed": 9,
     "removed": 0
   },
   "tasks": [
-    {
-      "id": "GA0006",
-      "title": "Adopt good-agent in taproot and taproot-controls and remove the duplicates",
-      "status": "active",
-      "milestone": "Beta",
-      "priority": "Medium",
-      "effort": 8,
-      "depends_on": [
-        "GA0002",
-        "GA0004",
-        "GA0005"
-      ],
-      "owner": "je",
-      "collaborators": [],
-      "summary": "Point taproot and taproot-controls at the published skills and review runner, delete the process text and exchange scripts they duplicate, and fix the errors the guard reports in each repo."
-    },
     {
       "id": "GA0007",
       "title": "Remove the work-task playbook from Trellis in favour of good-agent",
@@ -120,6 +104,23 @@
       "collaborators": [],
       "summary": "Publish `good-agent` (unscoped) as the package, `@taprootio/good-agent` as a thin alias, and copy Trellis's version-bump release workflow with trusted publishing.",
       "completed_on": "2026-11-01"
+    },
+    {
+      "id": "GA0006",
+      "title": "Adopt good-agent in taproot and taproot-controls and remove the duplicates",
+      "status": "completed",
+      "milestone": "Beta",
+      "priority": "Medium",
+      "effort": 8,
+      "depends_on": [
+        "GA0002",
+        "GA0004",
+        "GA0005"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Point taproot and taproot-controls at the published skills and review runner, delete the process text and exchange scripts they duplicate, and fix the errors the guard reports in each repo.",
+      "completed_on": "2026-11-02"
     },
     {
       "id": "GA0008",
