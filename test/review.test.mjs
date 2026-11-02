@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { BIN, REPO, tempTree } from "./helpers.mjs";
-import { validateFindings, loadPrompt, assemblePrompt, CODEX_DISABLED_FEATURES } from "../src/review.mjs";
+import { validateFindings, loadPrompt, assemblePrompt, failureDetail, CODEX_DISABLED_FEATURES } from "../src/review.mjs";
 import { deriveId, repoSlug, reserveRound, treeDigest } from "../src/review-store.mjs";
 
 const FAKES = join(REPO, "test", "fakes");
@@ -601,6 +601,78 @@ test("a reviewer's rejected flag is the line reported, not the first stderr line
     assert.match(res.stderr, /a flag was rejected: error: unexpected argument '--ephemeral' found/);
     assert.ok(!res.stderr.includes("telemetry notice"));
   } finally { r.cleanup(); }
+});
+
+const MODEL_REFUSED = `ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.","code":"model_not_found"}}`;
+
+test("a reviewer that exits non-zero: the cause, the log path, the model and effort, and a hint for a refused model", () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const story = ["--by", "codex", "--prompt", "story", "--task", "trellis/active/GA0002.md"];
+    const noise = "WARNING: telemetry notice\nreading prompt from stdin";
+    let res = review([...story, "--model", "gpt-6-astra"], { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_STDERR: `${noise}\n${MODEL_REFUSED}` } });
+    assert.equal(res.status, 3);
+    const lines = res.stderr.split("\n");
+    assert.match(lines[0], /^good-agent: REVIEW_ERROR: codex exited 1 \(round GA0002-story-r1; log: .*GA0002-story-r1\.log\)$/);
+    assert.ok(lines.includes(`    ${MODEL_REFUSED}`), res.stderr);
+    assert.ok(!res.stderr.includes("telemetry notice"), "lines are chosen by error, not the whole stream");
+    assert.ok(lines.includes("  model: gpt-6-astra (--model), effort: medium"), res.stderr);
+    assert.match(res.stderr, /hint: the model was refused; set review\.codex\.model in good-agent\.config\.json or pass --model/);
+    assert.ok(lines.indexOf(`    ${MODEL_REFUSED}`) > 0, "the detail follows the REVIEW_ERROR line");
+    const log = readdirSync(reviews).filter((n) => !n.endsWith(".lock") && n !== "record.txt");
+    assert.ok(readFileSync(join(reviews, log[0], "GA0002-story-r1.log"), "utf8").includes("model_not_found"), "the log holds the full output");
+    assert.deepEqual([metas(reviews)["GA0002-story-r1"].model, metas(reviews)["GA0002-story-r1"].model_source, metas(reviews)["GA0002-story-r1"].effort], ["gpt-6-astra", "flag", "medium"]);
+    assert.doesNotMatch(metas(reviews)["GA0002-story-r1"].error, /ERROR:/, "the meta error stays one line");
+
+    // a model from the config file
+    writeFileSync(join(r.root, "good-agent.config.json"), JSON.stringify({ review: { codex: { model: "cfg-model", effort: "low" } } }));
+    res = review(story, { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_STDERR: MODEL_REFUSED } });
+    assert.match(res.stderr, /^  model: cfg-model \(review\.codex\.model in good-agent\.config\.json, or the built-in default\), effort: low$/m);
+    assert.deepEqual([metas(reviews)["GA0002-story-r2"].model, metas(reviews)["GA0002-story-r2"].model_source], ["cfg-model", "config"]);
+
+    // no model anywhere: Codex's own default
+    writeFileSync(join(r.root, "good-agent.config.json"), "{}\n");
+    res = review(story, { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_STDERR: "ERROR: something else" } });
+    assert.match(res.stderr, /^  model: none passed; codex's own default applies \(a model set in ~\/\.codex\/config\.toml, else Codex's built-in default\), effort: medium$/m);
+    assert.doesNotMatch(res.stderr, /hint:/);
+    assert.deepEqual([metas(reviews)["GA0002-story-r3"].model, metas(reviews)["GA0002-story-r3"].model_source], [null, null]);
+    const lastExec = res.record.split("\n").filter((l) => l.startsWith("ARGV:exec ")).pop() ?? "";
+    assert.ok(lastExec && !/ -m /.test(lastExec), "no model is passed to the reviewer");
+
+    // no line mentions an error: the last twenty lines, long lines cut
+    const progress = Array.from({ length: 25 }, (_, i) => `progress ${i + 1}`);
+    res = review(story, { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_STDERR: `${progress.join("\n")}\n${"x".repeat(700)}` } });
+    assert.ok(res.stderr.includes("    progress 7\n") && !res.stderr.includes("progress 6\n"), "20 lines: progress 7 to 25 and the long line");
+    assert.ok(res.stderr.includes(`    ${"x".repeat(600)}...\n`) && !res.stderr.includes("x".repeat(601)));
+  } finally { r.cleanup(); }
+});
+
+test("a Claude failure reported as an envelope on standard output shows its message, and Claude always has a model", () => {
+  const r = repo();
+  const reviews = scratch();
+  try {
+    const envelope = JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, result: "Error: the model 'sonnet' was not found (model_not_found)" });
+    const res = review(["--by", "claude", "--prompt", "story", "--task", "trellis/active/GA0002.md"], { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_RAW_STDOUT: envelope, FAKE_STDERR: "warming up" } });
+    assert.equal(res.status, 3);
+    assert.match(res.stderr, /REVIEW_ERROR: claude exited 1/);
+    assert.ok(res.stderr.includes(`    ${envelope}\n`), res.stderr);
+    assert.ok(!res.stderr.includes("warming up"));
+    assert.match(res.stderr, /^  model: sonnet \(review\.claude\.model in good-agent\.config\.json, or the built-in default\), effort: high$/m);
+    assert.match(res.stderr, /hint: .*review\.claude\.model/);
+    assert.deepEqual([metas(reviews)["GA0002-story-r1"].model, metas(reviews)["GA0002-story-r1"].model_source], ["sonnet", "config"]);
+  } finally { r.cleanup(); }
+});
+
+test("failureDetail: standard output is the tail when standard error is blank; control characters go; silence is said", () => {
+  const base = { reviewer: /** @type {const} */ ("claude"), model: "m", modelSource: /** @type {const} */ ("flag"), effort: "high" };
+  const tail = failureDetail({ ...base, stdout: "one\ntwo\n", stderr: "  \n\n" });
+  assert.deepEqual(tail.slice(0, 3), ["  the reviewer reported:", "    one", "    two"]);
+  const dirty = failureDetail({ ...base, stdout: "", stderr: "Error: \u001b[31mred\u001b[0m\u0007" });
+  assert.ok(dirty.includes("    Error: [31mred[0m"));
+  const none = failureDetail({ ...base, stdout: "", stderr: "" });
+  assert.equal(none[0], "  the reviewer printed nothing; see the log");
+  assert.equal(failureDetail({ ...base, stdout: "", stderr: Array.from({ length: 12 }, (_, i) => `error ${i + 1}`).join("\n") }).filter((l) => l.startsWith("    error")).length, 10);
 });
 
 test("MCP servers fail closed: a listing without an enabled flag counts as enabled", () => {
