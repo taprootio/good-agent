@@ -661,6 +661,9 @@ test("a Claude failure reported as an envelope on standard output shows its mess
     assert.match(res.stderr, /^  model: sonnet \(review\.claude\.model in good-agent\.config\.json, or the built-in default\), effort: high$/m);
     assert.match(res.stderr, /hint: .*review\.claude\.model/);
     assert.deepEqual([metas(reviews)["GA0002-story-r1"].model, metas(reviews)["GA0002-story-r1"].model_source], ["sonnet", "config"]);
+    const flagged = review(["--by", "claude", "--prompt", "story", "--task", "trellis/active/GA0002.md", "--model", "opus"], { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_RAW_STDOUT: envelope } });
+    assert.match(flagged.stderr, /^  model: opus \(--model\), effort: high$/m);
+    assert.deepEqual([metas(reviews)["GA0002-story-r2"].model, metas(reviews)["GA0002-story-r2"].model_source], ["opus", "flag"]);
   } finally { r.cleanup(); }
 });
 
