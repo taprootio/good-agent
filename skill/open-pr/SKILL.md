@@ -34,7 +34,11 @@ says in prose. Where the file is silent, use the defaults below and say so.
   `git merge-base --is-ancestor <base> HEAD` succeeds. When it does not,
   bring the branch up to date the way the repository does (a merge or a
   rebase, as its instruction file says), resolve conflicts, and rerun the
-  gates. Do not push to do this.
+  gates. Do not push to do this. Conflict resolution, a bump and a changelog
+  edit all change the reviewed tree: when one of them touches more than
+  generated files or the changelog, run the repository's review on the new
+  diff again (the `review-loop` skill, at least a confirmation round) and
+  update the task's review record before the pull request is opened.
 - The gates the repository names have passed on the final tree: the
   `gates` seam point, or the commands its canonical file lists. If any
   file changed after they last ran, run them again. A gate that fails is
@@ -74,7 +78,9 @@ package manifest.
   shipped skills and their prompts, a schema, a CLI flag or output. Tests,
   internal docs, the backlog and CI-only changes do not.
 - **Changelog check.** A change to shipped behaviour with no `Unreleased`
-  entry gets one, in the repository's changelog format.
+  entry gets one, in the repository's changelog format, committed on the
+  branch, with the applicable gates run again. This holds whether or not
+  the pull request turns out to be a release.
 - **Stop and ask.** When shipped behaviour changed (or `Unreleased` gained
   entries) and the version did not move, do not guess and do not bump on
   your own. Ask the owner, once and plainly: "This changes shipped
@@ -137,8 +143,9 @@ commits.
 
 ## 5. Open it, after approval
 
-Show the owner the branch, its head, the bump decision and the drafted
-title and body. Pushing and opening are the owner's go-ahead, in this
+Confirm `git status --short` is empty (every edit from the steps above is
+committed), then show the owner the branch, its head, the bump decision and
+the drafted title and body. Pushing and opening are the owner's go-ahead, in this
 conversation, for this pull request; an approval for an earlier push does
 not carry over. After the go-ahead, push the branch, open the pull request
 against the base branch with the host's tool (`gh pr create --base <base>
