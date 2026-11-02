@@ -8,6 +8,15 @@ only in a major; a limit changes in a minor with the doc link and date here.
 
 ## Unreleased
 
+### Changed
+
+- `good-agent review` explains a reviewer failure. When the reviewer exits
+  non-zero it prints the lines of its output that report the error, the model
+  and effort passed and where the model came from (or that Codex's own
+  default applied), and a hint to set `review.codex.model`,
+  `review.claude.model` or `--model` when the model is refused
+  (`model_not_found` or "model is not supported"). `.meta.json` gains `model_source`. (GA0009)
+
 ### Fixed
 
 - `check` and `inspect` honour `.gitignore`. Inside a git work tree the

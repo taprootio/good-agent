@@ -164,7 +164,7 @@ the message names the log).
    takes it over once the group is gone.
 7. Records the digest again. A moved tree makes the result void
    (`REVIEW_UNSAFE`). A non-zero exit (with the first stderr line that names
-   a rejected flag), a timeout, an interruption, missing output, a
+   a rejected flag; see "When the reviewer fails" below), a timeout, an interruption, missing output, a
    bad envelope, a refused MCP server or output that fails the findings
    schema is `REVIEW_ERROR`. Either way the round keeps its number, the
    failure and both digests go into its `.meta.json` and the log, and the
@@ -229,6 +229,40 @@ checks for `type: result`, `subtype: success`, `is_error: false`. The
 environment loses the same eight credentials and switches, including
 `OPENAI_API_KEY` and `CODEX_API_KEY`.
 
+## When the reviewer fails
+
+A reviewer that exits non-zero is `REVIEW_ERROR` (exit 3). After the
+one-line `REVIEW_ERROR` message, which names the round and its `.log`, the
+runner prints to standard error:
+
+```
+  the reviewer reported:
+    ERROR: {"type":"error","status":400,"error":{...,"code":"model_not_found"}}
+  model: gpt-6.1-sol (review.codex.model in good-agent.config.json, or the built-in default), effort: medium
+  hint: the model was refused; set review.codex.model in good-agent.config.json or pass --model with one this login accepts
+```
+
+- The reported lines are the reviewer's standard error followed by its
+  standard output, searched together: the last ten distinct lines that
+  contain `error` (any case). With none, the last twenty non-blank lines of standard
+  error, or of standard output when standard error has no non-blank line.
+  Each line is cut at 600 characters and control characters are removed.
+  A Claude failure arrives as one JSON line on standard output.
+- The model line says where the model came from: `--model`, or
+  `review.<tool>.model` (the config file, or the built-in default, since the
+  loaded config does not record which). With no model passed, only Codex
+  can run (Claude's built-in default is `sonnet`), and the line says Codex's
+  own default applies: a model set in `~/.codex/config.toml`, else Codex's
+  built-in default.
+- The hint appears when the output contains `model_not_found` or "model is
+  not supported" (Codex prints the second without the code when it refuses a
+  model by name, observed 2026-11-02). For Codex a second hint says an
+  outdated CLI also refuses newer models and points at `codex --version` and
+  `codex debug models` (the refusal in the original report came from an
+  outdated Codex CLI, not a missing entitlement).
+- `.meta.json` keeps the one-line `error`; the lines above are not stored
+  there. The `.log` holds the full output, including the prompt.
+
 ## History
 
 `$GOOD_AGENT_REVIEWS` or `~/.config/good-agent/reviews/`, then
@@ -242,7 +276,8 @@ files per round, named `<id>-<prompt>-rN`:
   validation.
 - `.meta.json`: created exclusively (`wx`) before the reviewer starts, which
   is how a round is reserved, and rewritten at the end with the reviewer,
-  author, model, effort, CLI version, base (as given and as a sha), head,
+  author, model (null when none was passed), `model_source` (`flag`, `config`
+  or null: Codex's own default), effort, CLI version, base (as given and as a sha), head,
   task, verified commands, attempt, start time, `status` (`ok`,
   `REVIEW_ERROR` or `REVIEW_UNSAFE`), `error`, both tree digests,
   `tree_stable`, both task fingerprints (`task_digest_before`, `task_digest_after`),
@@ -257,10 +292,10 @@ repository being reviewed.
 
 ## Flag citations
 
-Checked on 2026-11-01 against `codex-cli 0.156.1` (`codex exec --help`,
+Checked on 2026-11-01 (the "no `-m`" row on 2026-11-02) against `codex-cli 0.156.1` (`codex exec --help`,
 `codex mcp list --help`, `codex features list`) and `claude 2.1.310`
-(`claude --help`). A flag the CLI rejects later fails the review with its
-first stderr line.
+(`claude --help`). A flag the CLI rejects later fails the review with the stderr line that
+names it.
 
 | Flag | Source | What the help says it does |
 | --- | --- | --- |
@@ -269,6 +304,7 @@ first stderr line.
 | `-c approval_policy="never"`, `-c notify=[]`, `-c model_reasoning_effort="<e>"`, `-c features.<name>=false`, `-c mcp_servers.<name>.enabled=false` | `codex exec --help` | `-c key=value` overrides a config value; the value is parsed as TOML. The feature names are the ones `codex features list` prints |
 | `--ignore-rules` | `codex exec --help` | do not load user or project execpolicy `.rules` files |
 | `-m <model>` | `codex exec --help` | the model |
+| no `-m` | `codex exec --help` | `-c` overrides "a configuration value that would otherwise be loaded from `~/.codex/config.toml`"; with no model passed the runner says Codex's own default applies, a model set there or else Codex's built-in default (codex-cli 0.156.1, checked 2026-11-02) |
 | `--ephemeral` | `codex exec --help` | run without persisting session files |
 | `--color never` | `codex exec --help` | color setting; `never` is a listed value |
 | `--output-schema <file>` | `codex exec --help` | JSON Schema file for the final response |

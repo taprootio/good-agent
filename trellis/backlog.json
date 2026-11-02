@@ -6,10 +6,10 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0009",
+  "nextId": "GA0010",
   "counts": {
     "active": 2,
-    "completed": 6,
+    "completed": 7,
     "removed": 0
   },
   "tasks": [
@@ -135,6 +135,21 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Inside a git work tree, enumerate candidate instruction files from git so ignored files, such as per-session worktrees under .claude/worktrees, are not checked; keep the directory walk as the fallback and keep explicit command-line paths checked as given.",
+      "completed_on": "2026-11-02"
+    },
+    {
+      "id": "GA0009",
+      "title": "Show why a reviewer failed in `good-agent review`",
+      "status": "completed",
+      "milestone": "Beta",
+      "priority": "High",
+      "effort": 2,
+      "depends_on": [
+        "GA0004"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "When a reviewer exits non-zero, print the cause from its output, the round's log path, and the model, effort and where the model came from, with a hint for a refused model, instead of only \"codex exited 1\".",
       "completed_on": "2026-11-02"
     }
   ]
