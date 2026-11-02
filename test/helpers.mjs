@@ -1,6 +1,6 @@
 // @ts-check
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,5 +30,26 @@ export function tempTree(files) {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   }
+  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+/**
+ * Run git in a directory with a fixed identity, for the tests that need a work tree.
+ * @param {string} root
+ * @param {...string} args
+ */
+export function git(root, ...args) {
+  return execFileSync("git", ["-C", root, "-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { encoding: "utf8" }).trim();
+}
+
+/**
+ * Copy a fixture directory to a throwaway directory, optionally as a git work tree.
+ * @param {string} fixture
+ * @param {{ git?: boolean }} [options]
+ */
+export function copyFixture(fixture, options = {}) {
+  const root = mkdtempSync(join(tmpdir(), "good-agent-"));
+  cpSync(fixture, root, { recursive: true });
+  if (options.git) git(root, "init", "-q", "-b", "main");
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }

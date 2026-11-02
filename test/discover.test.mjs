@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { discover, detectCanonical, codexChains, claudeLaunchSet, claudeImportDepth, resolveReference } from "../src/discover.mjs";
 import { claudeImports } from "../src/markdown.mjs";
 import { defaultConfig } from "../src/config.mjs";
-import { tempTree, run } from "./helpers.mjs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tempTree, run, copyFixture, git, FIXTURES } from "./helpers.mjs";
 
 const AG = "# AGENTS.md\n\n- Rule one that is long enough.\n";
 
@@ -262,5 +264,115 @@ test("claudeImportDepth keeps a launch-set finding that an on-demand entry point
     const hits = j.findings.filter((/** @type {any} */ f) => f.rule === "claude/import-depth");
     assert.equal(hits.length, 1);
     assert.equal(hits[0].file, "docs/d.md");
+  } finally { t.cleanup(); }
+});
+
+const WORKTREES = join(FIXTURES, "gitignore", "worktrees");
+const SESSION = ".claude/worktrees/session-a";
+const paths = (/** @type {import("../src/discover.mjs").Repo} */ repo) => repo.files.map((f) => f.path);
+
+test("git mode: a gitignored per-session worktree is not checked", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  try {
+    // A real worktree holds a .git file; git treats the directory as a nested repository.
+    writeFileSync(join(t.root, SESSION, ".git"), "gitdir: ../../../.git/worktrees/session-a\n");
+    const repo = discover(t.root, defaultConfig());
+    assert.equal(repo.source, "git");
+    assert.deepEqual(paths(repo), ["AGENTS.md", "CLAUDE.md"]);
+    const r = run(["check", "--json", "--cwd", t.root]);
+    assert.equal(r.status, 0, r.stdout);
+    assert.deepEqual(JSON.parse(r.stdout).files.map((/** @type {{ path: string }} */ f) => f.path), ["AGENTS.md", "CLAUDE.md"]);
+  } finally { t.cleanup(); }
+});
+
+test("walk fallback: outside a work tree the same directory reports the copies", () => {
+  const t = copyFixture(WORKTREES);
+  try {
+    const repo = discover(t.root, defaultConfig());
+    assert.equal(repo.source, "walk");
+    assert.deepEqual(paths(repo), [`${SESSION}/AGENTS.md`, `${SESSION}/CLAUDE.md`, "AGENTS.md", "CLAUDE.md"]);
+    assert.equal(run(["check", "--cwd", t.root]).status, 1);
+  } finally { t.cleanup(); }
+});
+
+test("git mode: git missing from PATH falls back to the walk", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  const saved = process.env.PATH;
+  try {
+    process.env.PATH = "";
+    const repo = discover(t.root, defaultConfig());
+    assert.equal(repo.source, "walk");
+    assert.equal(paths(repo).length, 4);
+    process.env.PATH = saved;
+    assert.equal(run(["check", "--json", "--cwd", t.root], { env: { PATH: "" } }).status, 1);
+  } finally { process.env.PATH = saved; t.cleanup(); }
+});
+
+test("git mode: untracked unignored and tracked-but-ignored files are checked, ignored ones are not", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  try {
+    writeFileSync(join(t.root, ".gitignore"), ".claude/worktrees/\nscratch/\nvendored/\n");
+    for (const dir of ["scratch", "vendored", "docs"]) { mkdirSync(join(t.root, dir)); writeFileSync(join(t.root, dir, "AGENTS.md"), "# a\n"); }
+    git(t.root, "add", "-f", "vendored/AGENTS.md");
+    assert.deepEqual(paths(discover(t.root, defaultConfig())), ["AGENTS.md", "CLAUDE.md", "docs/AGENTS.md", "vendored/AGENTS.md"]);
+    // The index is the source for tracked files: a tracked file stays after it is ignored and untracked files appear without git add.
+    git(t.root, "add", "-f", `${SESSION}/AGENTS.md`);
+    assert.ok(paths(discover(t.root, defaultConfig())).includes(`${SESSION}/AGENTS.md`));
+  } finally { t.cleanup(); }
+});
+
+test("git mode: ignored directory names and config ignore globs apply on top", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  try {
+    for (const dir of ["node_modules/pkg", "build", "vendor/lib", "web"]) { mkdirSync(join(t.root, dir), { recursive: true }); writeFileSync(join(t.root, dir, "AGENTS.md"), "# a\n"); }
+    writeFileSync(join(t.root, "web", "CLAUDE.md"), "@AGENTS.md\n");
+    const config = { ...defaultConfig(), ignore: ["vendor/**", "web/CLAUDE.md"] };
+    assert.deepEqual(paths(discover(t.root, config)), ["AGENTS.md", "CLAUDE.md", "web/AGENTS.md"]);
+  } finally { t.cleanup(); }
+});
+
+test("git mode: a root below the top of the work tree lists only files under it", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  try {
+    mkdirSync(join(t.root, "pkg", "sub"), { recursive: true });
+    writeFileSync(join(t.root, "pkg", "AGENTS.md"), "# pkg\n");
+    writeFileSync(join(t.root, "pkg", "sub", "CLAUDE.md"), "@../AGENTS.md\n");
+    const repo = discover(join(t.root, "pkg"), defaultConfig());
+    assert.equal(repo.source, "git");
+    assert.deepEqual(paths(repo), ["AGENTS.md", "sub/CLAUDE.md"]);
+  } finally { t.cleanup(); }
+});
+
+test("git mode: a root that is itself an ignored directory is walked", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  try {
+    const repo = discover(join(t.root, SESSION), defaultConfig());
+    assert.equal(repo.source, "walk");
+    assert.deepEqual(paths(repo), ["AGENTS.md", "CLAUDE.md"]);
+  } finally { t.cleanup(); }
+});
+
+test("git mode: a nested repository is not entered", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  try {
+    mkdirSync(join(t.root, "other"));
+    git(join(t.root, "other"), "init", "-q", "-b", "main");
+    writeFileSync(join(t.root, "other", "AGENTS.md"), "# other\n");
+    assert.deepEqual(paths(discover(t.root, defaultConfig())), ["AGENTS.md", "CLAUDE.md"]);
+  } finally { t.cleanup(); }
+});
+
+test("an explicit path to an ignored instruction file is checked as given", () => {
+  const t = copyFixture(WORKTREES, { git: true });
+  try {
+    const given = `${SESSION}/AGENTS.md`;
+    assert.deepEqual(paths(discover(t.root, defaultConfig(), { include: [given] })), [given, "AGENTS.md", "CLAUDE.md"]);
+    // Not an instruction file, outside the root, or covered by config ignore: not added.
+    const config = { ...defaultConfig(), ignore: [`${SESSION}/CLAUDE.md`] };
+    assert.deepEqual(paths(discover(t.root, config, { include: [`${SESSION}/CLAUDE.md`, "../AGENTS.md", ".gitignore", "missing/AGENTS.md"] })), ["AGENTS.md", "CLAUDE.md"]);
+    const r = run(["check", "--json", given], { cwd: t.root });
+    assert.deepEqual(JSON.parse(r.stdout).files.map((/** @type {{ path: string }} */ f) => f.path), [given, "AGENTS.md", "CLAUDE.md"]);
+    assert.notEqual(r.status, 0);
+    assert.equal(run(["check", "--json", "AGENTS.md"], { cwd: t.root }).status, 0);
   } finally { t.cleanup(); }
 });
