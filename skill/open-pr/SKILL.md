@@ -30,17 +30,24 @@ says in prose. Where the file is silent, use the defaults below and say so.
 
 - `git status --short` is empty; unrelated changes in the tree are a
   blocker to surface, never something to commit into this branch.
-- The branch is on top of the base branch: `git fetch` the base, then
+- The branch is on top of the base branch. `<base>` in this skill is the
+  base branch's remote-tracking ref (`origin/main`, say), never the local
+  branch, which can be stale: `git fetch` the remote, then
   `git merge-base --is-ancestor <base> HEAD` succeeds. When it does not,
   bring the branch up to date the way the repository does (a merge or a
   rebase, as its instruction file says), resolve conflicts, and rerun the
-  gates. Do not push to do this. Conflict resolution, a bump and a changelog
-  edit all change the reviewed tree. After any of them, run the repository's
-  review loop on the updated diff again (the `review-loop` skill: internally
-  until clean, then externally until clean, as its review policy says) and
-  update the task's review record before the pull request is opened. The
-  delta is small, so the round is cheap; skipping it ships code that no
-  reviewer read.
+  gates. Do not push to do this.
+- Conflict resolution, a bump and a changelog edit all change the reviewed
+  tree. Once the release decision in section 2 is made and every edit is
+  committed, run the repository's review loop on the final diff again (the
+  `review-loop` skill: internally until clean, then externally until clean,
+  as its review policy says) and update the task's review record, before
+  the pull request is opened. Run it once, at that point, not after each
+  edit: the diff review flags a changed behaviour with no bump and no
+  explanation, so a review before the decision cannot come back clean. Put
+  the decision where the reviewer reads it (the task's Notes or the
+  changelog). The delta is small, so the round is cheap; skipping it ships
+  code that no reviewer read.
 - The gates the repository names have passed on the final tree: the
   `gates` seam point, or the commands its canonical file lists. If any
   file changed after they last ran, run them again. A gate that fails is
@@ -83,9 +90,8 @@ package manifest.
   internal docs, the backlog and CI-only changes do not.
 - **Changelog check.** A change to shipped behaviour with no `Unreleased`
   entry gets one, in the repository's changelog format, committed on the
-  branch, with the applicable gates run again and the review loop rerun on
-  the updated diff (section 1 says how). This holds whether or not the
-  pull request turns out to be a release.
+  branch, with the applicable gates run again. This holds whether or not
+  the pull request turns out to be a release.
 - **Stop and ask.** When shipped behaviour changed (or `Unreleased` gained
   entries) and the version did not move, do not guess and do not bump on
   your own. Ask the owner, once and plainly: "This changes shipped
@@ -99,11 +105,11 @@ package manifest.
     it if the changelog keeps one. Update any status line that names the
     version (a README install line, a version line in the design document,
     a pinned `npx <name>@<minor>` in the docs). Commit the bump as its own
-    commit, rerun the gates, and rerun the review loop on the updated diff
-    (section 1 says how).
+    commit and rerun the gates.
   - **No, deliberately not a release.** Record that in the PR body in a
     sentence: the version stays `<x>` and the changes wait under
-    `Unreleased` for a later release.
+    `Unreleased` for a later release. Note it in the task as well, where
+    the reviewer reads it.
 
 **Bump rules.** Use the repository's own, from its instruction file or the
 design document it names. For good-agent (`docs/design.md` section 8): a
@@ -150,8 +156,8 @@ commits.
 ## 5. Open it, after approval
 
 Confirm `git status --short` is empty (every edit from the steps above is
-committed) and that the review loop has been rerun on the final diff if any
-commit was made in sections 1 to 4, then show the owner the branch, its head, the bump decision and
+committed) and that the review loop has been run on the final diff if any
+commit was made in sections 1 to 4 (section 1 says when), then show the owner the branch, its head, the bump decision and
 the drafted title and body. Pushing and opening are the owner's go-ahead, in this
 conversation, for this pull request; an approval for an earlier push does
 not carry over. After the go-ahead, push the branch, open the pull request
