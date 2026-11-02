@@ -6,9 +6,9 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0010",
+  "nextId": "GA0012",
   "counts": {
-    "active": 2,
+    "active": 3,
     "completed": 7,
     "removed": 0
   },
@@ -42,6 +42,20 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Once good-agent is released, delete Trellis's own work-task playbook and MCP prompt and point its code-review and pr-draft playbooks at good-agent's review-loop skill, so the loop has one home."
+    },
+    {
+      "id": "GA0011",
+      "title": "An open-pr skill that checks whether a version bump is required",
+      "status": "active",
+      "milestone": "Beta",
+      "priority": "High",
+      "effort": 3,
+      "depends_on": [
+        "GA0005"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Ship a fifth skill, open-pr, that walks an AI tool through opening a pull request including the version-bump decision, and make the diff review prompt flag a change to shipped behaviour that neither bumps the version nor says it is not a release."
     },
     {
       "id": "GA0001",

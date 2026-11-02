@@ -11,6 +11,7 @@ generated; do not hand-edit between the markers — edit the per-item files in
 
 | ID | Title | Owner | Priority | Effort |
 | --- | --- | --- | --- | --- |
+| [GA0011](active/GA0011.md) | An open-pr skill that checks whether a version bump is required | je | High | 3 |
 | [GA0006](active/GA0006.md) | Adopt good-agent in taproot and taproot-controls and remove the duplicates | je | Medium | 8 |
 | [GA0007](active/GA0007.md) | Remove the work-task playbook from Trellis in favour of good-agent | je | Medium | 2 |
 
