@@ -115,18 +115,16 @@ jobs:
             *) gh release create "v$VERSION" --title "v$VERSION" --notes "See CHANGELOG.md." --target "$GITHUB_SHA" ;;
           esac
 
-  # The @taprootio/good-agent alias. Disabled until the main 0.1.0 release,
-  # the owner's manual first publish of the alias, and the alias's trusted
-  # publisher exist (GA0005). To enable it, replace `if: false` with
-  #   if: ${{ !cancelled() && needs.check.result == 'success' && needs.check.outputs.version != '0.0.0' && needs.publish.result != 'failure' }}
-  # so it runs after a main release or after an unrelated push, and so a
-  # bump of alias/package.json alone is published; the step below is the
-  # idempotency guard. Keep alias/package.json's dependency range in step
-  # with major bumps (>=0.1.0 <1 becomes ^1 at 1.0).
+  # The @taprootio/good-agent alias. Enabled since GA0005 (the main 0.1.0
+  # release, the owner's manual first publish of the alias, and the alias's
+  # trusted publisher all exist). It runs after a main release or after an
+  # unrelated push, so a bump of alias/package.json alone is published; the
+  # step below is the idempotency guard. Keep alias/package.json's
+  # dependency range in step with major bumps (>=0.1.0 <1 becomes ^1 at 1.0).
   alias:
     name: publish alias
     needs: [check, publish]
-    if: false
+    if: needs.check.result == 'success' && needs.check.outputs.version != '0.0.0' && needs.publish.result != 'failure' && !cancelled()
     runs-on: ubuntu-latest
     permissions:
       contents: read

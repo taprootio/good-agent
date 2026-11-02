@@ -8,28 +8,11 @@
   ],
   "nextId": "GA0008",
   "counts": {
-    "active": 3,
-    "completed": 4,
+    "active": 2,
+    "completed": 5,
     "removed": 0
   },
   "tasks": [
-    {
-      "id": "GA0005",
-      "title": "Claim the npm names and set up the release workflow",
-      "status": "active",
-      "milestone": "Alpha",
-      "priority": "Medium",
-      "effort": 2,
-      "depends_on": [
-        "GA0001",
-        "GA0002",
-        "GA0003",
-        "GA0004"
-      ],
-      "owner": "je",
-      "collaborators": [],
-      "summary": "Publish `good-agent` (unscoped) as the package, `@taprootio/good-agent` as a thin alias, and copy Trellis's version-bump release workflow with trusted publishing."
-    },
     {
       "id": "GA0006",
       "title": "Adopt good-agent in taproot and taproot-controls and remove the duplicates",
@@ -118,6 +101,24 @@
       "owner": "je",
       "collaborators": [],
       "summary": "A runner that spawns a fresh, read-only Codex or Claude Code review of a story, plan, design or diff, validates the findings against the schema, records digests and rounds, and returns the JSON, replacing Taproot's mailbox-and-watcher exchange.",
+      "completed_on": "2026-11-01"
+    },
+    {
+      "id": "GA0005",
+      "title": "Claim the npm names and set up the release workflow",
+      "status": "completed",
+      "milestone": "Alpha",
+      "priority": "Medium",
+      "effort": 2,
+      "depends_on": [
+        "GA0001",
+        "GA0002",
+        "GA0003",
+        "GA0004"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Publish `good-agent` (unscoped) as the package, `@taprootio/good-agent` as a thin alias, and copy Trellis's version-bump release workflow with trusted publishing.",
       "completed_on": "2026-11-01"
     }
   ]

@@ -25,7 +25,7 @@ test("alias/package.json: dependency range, bin file, executable, imports good-a
   assert.deepEqual(alias.dependencies, { "good-agent": ">=0.1.0 <1" });
   assert.deepEqual(alias.files, ["bin.mjs", "README.md"]);
   const bin = alias.bin["good-agent"];
-  assert.equal(bin, "./bin.mjs");
+  assert.equal(bin, "bin.mjs");
   const file = join(REPO, "alias", bin);
   assert.ok(existsSync(file), "alias bin exists");
   assert.ok((statSync(file).mode & 0o111) !== 0, "alias bin is executable");
@@ -68,7 +68,7 @@ test("npm pack lists the shipped files and nothing from alias, placeholder, test
   assert.deepEqual(paths.filter((p) => !allowed.test(p)), []);
 });
 
-test("release.yml keeps the 0.0.0 guard, the four gates, and a disabled alias job", () => {
+test("release.yml keeps the 0.0.0 guard, the four gates, and the alias job trigger", () => {
   const yml = readText(".github/workflows/release.yml");
   // The guard is the if ... fi block that starts at the 0.0.0 comparison; slice only that block.
   const start = yml.indexOf('if [ "$version" = "0.0.0" ]; then\n');
@@ -87,8 +87,9 @@ test("release.yml keeps the 0.0.0 guard, the four gates, and a disabled alias jo
   for (const gate of ["npx --yes @taprootio/trellis@0.2.0 check", "npm test", "npm run typecheck", "node scripts/good-agent.mjs check"]) {
     assert.ok(yml.includes(`- run: ${gate}\n`), gate);
   }
-  assert.match(yml, /^  alias:\n(?:    .*\n)*?    if: false\n/m);
-  assert.match(yml, /# .*enable/i);
+  // The alias runs after a main release or an unrelated push, never at 0.0.0 or after a failed publish.
+  // The condition ends with !cancelled() because a leading ! would be a YAML tag.
+  assert.match(yml, /^  alias:\n(?:    .*\n)*?    if: needs\.check\.result == 'success' && needs\.check\.outputs\.version != '0\.0\.0' && needs\.publish\.result != 'failure' && !cancelled\(\)\n/m);
   assert.ok(!yml.includes("\t"), "no tabs");
 });
 
