@@ -7,12 +7,6 @@ generated; do not hand-edit between the markers — edit the per-item files in
 
 <!-- BEGIN GENERATED:MILESTONES -->
 
-### Alpha
-
-| ID | Title | Owner | Priority | Effort |
-| --- | --- | --- | --- | --- |
-| [GA0005](active/GA0005.md) | Claim the npm names and set up the release workflow | je | Medium | 2 |
-
 ### Beta
 
 | ID | Title | Owner | Priority | Effort |
