@@ -26,8 +26,8 @@ only in a major; a limit changes in a minor with the doc link and date here.
 - The diff review prompt (`skill/review-loop/references/review-diff.md`)
   reports a finding when a diff changes shipped behaviour or adds changelog
   entries and neither carries the version bump the repository's release flow
-  needs nor says why it is not a release. `work-task`'s hand-off points at
-  `open-pr`. (GA0011)
+  needs nor says why it is not a release. `work-task` settles the release
+  question before its diff review and hands off through `open-pr`. (GA0011)
 - `good-agent review` explains a reviewer failure. When the reviewer exits
   non-zero it prints the lines of its output that report the error, the model
   and effort passed and where the model came from (or that Codex's own

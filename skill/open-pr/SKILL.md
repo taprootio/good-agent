@@ -92,6 +92,9 @@ package manifest.
   entry gets one, in the repository's changelog format, committed on the
   branch, with the applicable gates run again. This holds whether or not
   the pull request turns out to be a release.
+- **Already decided.** When the task or the changelog already records the
+  decision (a work-task run settles it before its diff review), check it
+  still matches the diff and go on; do not ask again.
 - **Stop and ask.** When shipped behaviour changed (or `Unreleased` gained
   entries) and the version did not move, do not guess and do not bump on
   your own. Ask the owner, once and plainly: "This changes shipped
@@ -161,7 +164,8 @@ commit was made in sections 1 to 4 (section 1 says when), then show the owner th
 the drafted title and body. Pushing and opening are the owner's go-ahead, in this
 conversation, for this pull request; an approval for an earlier push does
 not carry over. After the go-ahead, push the branch, open the pull request
-against the base branch with the host's tool (`gh pr create --base <base>
---title ... --body-file ...` on GitHub), and report the link. If the
+against the base branch with the host's tool (`gh pr create --base
+<base-branch> --title ... --body-file ...` on GitHub, where `<base-branch>`
+is `<base>` without the remote prefix, such as `main`), and report the link. If the
 repository's host or tool is unknown, give the owner the drafted title and
 body and stop.

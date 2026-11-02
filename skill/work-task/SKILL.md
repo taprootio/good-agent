@@ -6,7 +6,7 @@ description: "Take a backlog task from active to ready for the owner's
   internally then externally, dispatch bounded slices at the least-cost
   runtime that meets the quality floor, implement, review the work
   internally until clean and externally until clean, close out and hand off
-  without pushing. Use when asked to work on, implement, tackle or finish a
+  through open-pr, pushing only on the owner's go-ahead. Use when asked to work on, implement, tackle or finish a
   task, story or backlog item."
 license: MIT
 metadata:
@@ -91,6 +91,12 @@ repository's `gates` seam point) for the final reviewed candidate.
 
 ## 9. Review the work
 
+First settle the release question, so the review can see the answer: follow
+section 2 of the `open-pr` skill (does this change need a version bump?),
+ask the owner when it says to, make the bump or record in the task's Notes
+that the change is deliberately not a release, and commit. A repository
+with no release flow skips this.
+
 Run the `review-loop` skill with the diff prompt
 (`references/review-diff.md` in that skill) against the branch's starting commit, naming
 the task file: internally in a fresh context until `[]` (cap five passes,
@@ -112,7 +118,7 @@ whom; no model or vendor names), regenerate the backlog and run its check
 Tell the owner: the branch name, what shipped, the review outcome, the
 decisions taken under step 3, and the commands to push and open the pull
 request (the repository's `attribution` policy applies to the message). Run
-the `open-pr` skill to prepare the pull request, including whether it needs
-a version bump; it pushes and opens the pull request only on the owner's
+the `open-pr` skill to prepare the pull request (it checks the release
+decision from step 9 still holds); it pushes and opens the pull request only on the owner's
 go-ahead for that pull request. Otherwise do not push, publish or merge;
 those are the owner's.

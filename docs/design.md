@@ -921,8 +921,9 @@ repo can link to.
    the others, so it is not specific to this package. The diff review prompt
    carries the matching check: a diff that changes shipped behaviour or adds
    changelog entries must carry the bump its release flow needs or say why it
-   is not a release, and is a finding when neither is true. `work-task`'s
-   hand-off points at the skill.
+   is not a release, and is a finding when neither is true. `work-task`
+   settles the release question before its diff review (so the review sees
+   the answer) and its hand-off runs this skill.
 5. **`good-agent review`**: the runner. It spawns a fresh read-only reviewer
    as a child process and returns the findings:
 
