@@ -415,7 +415,7 @@ repository root. The CLI help and the README say so.
 ### 4.4 Human output
 
 ```
-good-agent 0.1.0 · 6 instruction files · canonical AGENTS.md
+good-agent 0.2.0 · 6 instruction files · canonical AGENTS.md
 
 ✖ AGENTS.md  codex/size-budget
   Codex loads at most 32,768 bytes of AGENTS.md content along the chain
@@ -445,7 +445,7 @@ with the numbers, the fix, the doc. The file line is first so editors and
 
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "root": "/Users/jereme/src/taproot",
   "canonical": "AGENTS.md",
   "files": [
@@ -661,8 +661,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: npx good-agent@0.1 check --json > good-agent.json || true
-      - run: npx good-agent@0.1 check
+      - run: npx good-agent@0.2 check --json > good-agent.json || true
+      - run: npx good-agent@0.2 check
 ```
 
 The first run keeps the JSON as a build artefact or for a PR comment step; the
