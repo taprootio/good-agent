@@ -256,7 +256,10 @@ runner prints to standard error:
   built-in default.
 - The hint appears when the output contains `model_not_found` or "model is
   not supported" (Codex prints the second without the code when it refuses a
-  model by name, observed 2026-11-02).
+  model by name, observed 2026-11-02). For Codex a second hint says an
+  outdated CLI also refuses newer models and points at `codex --version` and
+  `codex debug models` (the refusal in the original report came from an
+  outdated Codex CLI, not a missing entitlement).
 - `.meta.json` keeps the one-line `error`; the lines above are not stored
   there. The `.log` holds the full output, including the prompt.
 

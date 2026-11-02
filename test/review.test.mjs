@@ -619,6 +619,7 @@ test("a reviewer that exits non-zero: the cause, the log path, the model and eff
     assert.ok(!res.stderr.includes("telemetry notice"), "lines are chosen by error, not the whole stream");
     assert.ok(lines.includes("  model: gpt-6-astra (--model), effort: medium"), res.stderr);
     assert.match(res.stderr, /hint: the model was refused; set review\.codex\.model in good-agent\.config\.json or pass --model/);
+    assert.match(res.stderr, /hint: an outdated Codex CLI also refuses newer models; check `codex --version` and `codex debug models`/);
     assert.ok(lines.indexOf(`    ${MODEL_REFUSED}`) > 0, "the detail follows the REVIEW_ERROR line");
     const log = readdirSync(reviews).filter((n) => !n.endsWith(".lock") && n !== "record.txt");
     assert.ok(readFileSync(join(reviews, log[0], "GA0002-story-r1.log"), "utf8").includes("model_not_found"), "the log holds the full output");
@@ -666,6 +667,7 @@ test("a Claude failure reported as an envelope on standard output shows its mess
     assert.ok(!res.stderr.includes("warming up"));
     assert.match(res.stderr, /^  model: sonnet \(review\.claude\.model in good-agent\.config\.json, or the built-in default\), effort: high$/m);
     assert.match(res.stderr, /hint: .*review\.claude\.model/);
+    assert.doesNotMatch(res.stderr, /Codex CLI/);
     assert.deepEqual([metas(reviews)["GA0002-story-r1"].model, metas(reviews)["GA0002-story-r1"].model_source], ["sonnet", "config"]);
     const flagged = review(["--by", "claude", "--prompt", "story", "--task", "trellis/active/GA0002.md", "--model", "opus"], { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_RAW_STDOUT: envelope } });
     assert.match(flagged.stderr, /^  model: opus \(--model\), effort: high$/m);

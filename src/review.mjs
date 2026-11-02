@@ -455,7 +455,11 @@ export function failureDetail(o) {
     ...(shown.length > 0 ? ["  the reviewer reported:", ...shown.map((l) => `    ${cut(l)}`)] : ["  the reviewer printed nothing; see the log"]),
     o.model ? `  model: ${o.model} (${source}), effort: ${o.effort}` : `  model: none passed; ${o.reviewer}'s own default applies (${fallback}), effort: ${o.effort}`,
   ];
-  if (/model_not_found|model is not supported/.test(`${o.stderr}\n${o.stdout}`)) detail.push(`  hint: the model was refused; set review.${o.reviewer}.model in good-agent.config.json or pass --model with one this login accepts`);
+  if (/model_not_found|model is not supported/.test(`${o.stderr}\n${o.stdout}`)) {
+    detail.push(`  hint: the model was refused; set review.${o.reviewer}.model in good-agent.config.json or pass --model with one this login accepts`);
+    // An outdated Codex CLI refuses a model a current one accepts.
+    if (o.reviewer === "codex") detail.push("  hint: an outdated Codex CLI also refuses newer models; check `codex --version` and `codex debug models`");
+  }
   return detail;
 }
 
