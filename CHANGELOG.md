@@ -15,7 +15,7 @@ only in a major; a limit changes in a minor with the doc link and date here.
   and effort passed and where the model came from (or that Codex's own
   default applied), and a hint to set `review.codex.model`,
   `review.claude.model` or `--model` when the model is refused
-  (`model_not_found`). `.meta.json` gains `model_source`. (GA0009)
+  (`model_not_found` or "model is not supported"). `.meta.json` gains `model_source`. (GA0009)
 
 ## 0.1.0 (2026-11-01)
 

@@ -625,18 +625,24 @@ test("a reviewer that exits non-zero: the cause, the log path, the model and eff
     assert.deepEqual([metas(reviews)["GA0002-story-r1"].model, metas(reviews)["GA0002-story-r1"].model_source, metas(reviews)["GA0002-story-r1"].effort], ["gpt-6-astra", "flag", "medium"]);
     assert.doesNotMatch(metas(reviews)["GA0002-story-r1"].error, /ERROR:/, "the meta error stays one line");
 
+    // the same refusal without the code, printed twice: one cause line, still hinted
+    const text = "ERROR: The 'not-a-model' model is not supported when using Codex with a ChatGPT account.";
+    res = review([...story, "--model", "not-a-model"], { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_STDERR: `${text}\n${text}` } });
+    assert.equal(res.stderr.split(`    ${text}\n`).length, 2, "a repeated line is printed once");
+    assert.match(res.stderr, /hint: the model was refused/);
+
     // a model from the config file
     writeFileSync(join(r.root, "good-agent.config.json"), JSON.stringify({ review: { codex: { model: "cfg-model", effort: "low" } } }));
     res = review(story, { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_STDERR: MODEL_REFUSED } });
     assert.match(res.stderr, /^  model: cfg-model \(review\.codex\.model in good-agent\.config\.json, or the built-in default\), effort: low$/m);
-    assert.deepEqual([metas(reviews)["GA0002-story-r2"].model, metas(reviews)["GA0002-story-r2"].model_source], ["cfg-model", "config"]);
+    assert.deepEqual([metas(reviews)["GA0002-story-r3"].model, metas(reviews)["GA0002-story-r3"].model_source], ["cfg-model", "config"]);
 
     // no model anywhere: Codex's own default
     writeFileSync(join(r.root, "good-agent.config.json"), "{}\n");
     res = review(story, { root: r.root, reviews, env: { FAKE_EXIT: "1", FAKE_STDERR: "ERROR: something else" } });
     assert.match(res.stderr, /^  model: none passed; codex's own default applies \(a model set in ~\/\.codex\/config\.toml, else Codex's built-in default\), effort: medium$/m);
     assert.doesNotMatch(res.stderr, /hint:/);
-    assert.deepEqual([metas(reviews)["GA0002-story-r3"].model, metas(reviews)["GA0002-story-r3"].model_source], [null, null]);
+    assert.deepEqual([metas(reviews)["GA0002-story-r4"].model, metas(reviews)["GA0002-story-r4"].model_source], [null, null]);
     const lastExec = res.record.split("\n").filter((l) => l.startsWith("ARGV:exec ")).pop() ?? "";
     assert.ok(lastExec && !/ -m /.test(lastExec), "no model is passed to the reviewer");
 

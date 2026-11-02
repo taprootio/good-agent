@@ -433,8 +433,8 @@ const LINE_CUT = 600;
 
 /**
  * The lines printed under `REVIEW_ERROR` when a reviewer exits non-zero: what
- * it reported (standard error then standard output, the last ten lines that
- * mention an error, else the last twenty lines of standard error, or of
+ * it reported (standard error then standard output, the last ten distinct lines
+ * that mention an error, else the last twenty lines of standard error, or of
  * standard output when standard error is blank), the model and effort that
  * were passed and where the model came from, and a hint when the model was
  * refused. The full output stays in the round's log.
@@ -447,7 +447,7 @@ export function failureDetail(o) {
   const cut = (/** @type {string} */ l) => (l.length > LINE_CUT ? `${l.slice(0, LINE_CUT)}...` : l);
   const err = lines(o.stderr);
   const out = lines(o.stdout);
-  const causes = [...err, ...out].filter((l) => /error/i.test(l)).slice(-CAUSE_LINES);
+  const causes = [...new Set([...err, ...out].filter((l) => /error/i.test(l)))].slice(-CAUSE_LINES);
   const shown = causes.length > 0 ? causes : (err.length > 0 ? err : out).slice(-TAIL_LINES);
   const source = o.modelSource === "flag" ? "--model" : `review.${o.reviewer}.model in good-agent.config.json, or the built-in default`;
   const fallback = o.reviewer === "codex" ? "a model set in ~/.codex/config.toml, else Codex's built-in default" : "the CLI's built-in default";
@@ -455,7 +455,7 @@ export function failureDetail(o) {
     ...(shown.length > 0 ? ["  the reviewer reported:", ...shown.map((l) => `    ${cut(l)}`)] : ["  the reviewer printed nothing; see the log"]),
     o.model ? `  model: ${o.model} (${source}), effort: ${o.effort}` : `  model: none passed; ${o.reviewer}'s own default applies (${fallback}), effort: ${o.effort}`,
   ];
-  if (/model_not_found/.test(`${o.stderr}\n${o.stdout}`)) detail.push(`  hint: the model was refused; set review.${o.reviewer}.model in good-agent.config.json or pass --model with one this login accepts`);
+  if (/model_not_found|model is not supported/.test(`${o.stderr}\n${o.stdout}`)) detail.push(`  hint: the model was refused; set review.${o.reviewer}.model in good-agent.config.json or pass --model with one this login accepts`);
   return detail;
 }
 

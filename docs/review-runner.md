@@ -243,8 +243,8 @@ runner prints to standard error:
 ```
 
 - The reported lines are the reviewer's standard error followed by its
-  standard output, searched together: the last ten lines that contain
-  `error` (any case). With none, the last twenty non-blank lines of standard
+  standard output, searched together: the last ten distinct lines that
+  contain `error` (any case). With none, the last twenty non-blank lines of standard
   error, or of standard output when standard error has no non-blank line.
   Each line is cut at 600 characters and control characters are removed.
   A Claude failure arrives as one JSON line on standard output.
@@ -254,7 +254,9 @@ runner prints to standard error:
   can run (Claude's built-in default is `sonnet`), and the line says Codex's
   own default applies: a model set in `~/.codex/config.toml`, else Codex's
   built-in default.
-- The hint appears when the output contains `model_not_found`.
+- The hint appears when the output contains `model_not_found` or "model is
+  not supported" (Codex prints the second without the code when it refuses a
+  model by name, observed 2026-11-02).
 - `.meta.json` keeps the one-line `error`; the lines above are not stored
   there. The `.log` holds the full output, including the prompt.
 
