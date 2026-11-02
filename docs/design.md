@@ -878,8 +878,8 @@ repo can link to.
    bounded slices to the least-cost runtime that meets the quality floor
    (Taproot's "select a runtime deliberately" and "review cost ceiling"
    sections, generalized); implement; review the work internally until
-   clean, then externally until clean; close out; hand off through `open-pr`,
-   which pushes only on the owner's go-ahead for that pull request.
+   clean, then externally until clean; close out; hand off without pushing.
+   Opening the pull request is a separate ask that runs `open-pr`.
 3. **`review-loop`**: a skill of its own, invoked by the other two and on
    its own when someone asks for a review: fresh
    context, read-only, factual prompt, severity semantics, confirm-then-fix,
@@ -923,7 +923,10 @@ repo can link to.
    changelog entries must carry the bump its release flow needs or say why it
    is not a release, and is a finding when neither is true. `work-task`
    settles the release question before its diff review (so the review sees
-   the answer) and its hand-off runs this skill.
+   the answer), but its hand-off does not run this skill: opening a pull
+   request is the owner's explicit ask (owner decision, 2026-11-02), so
+   `work-task` ends by telling the owner the branch and the commands, and
+   this skill runs when they ask for the pull request.
 5. **`good-agent review`**: the runner. It spawns a fresh read-only reviewer
    as a child process and returns the findings:
 

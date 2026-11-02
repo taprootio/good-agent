@@ -27,7 +27,8 @@ only in a major; a limit changes in a minor with the doc link and date here.
   reports a finding when a diff changes shipped behaviour or adds changelog
   entries and neither carries the version bump the repository's release flow
   needs nor says why it is not a release. `work-task` settles the release
-  question before its diff review and hands off through `open-pr`. (GA0011)
+  question before its diff review and still hands off without pushing;
+  `open-pr` runs only when the owner asks for a pull request. (GA0011)
 - `good-agent review` explains a reviewer failure. When the reviewer exits
   non-zero it prints the lines of its output that report the error, the model
   and effort passed and where the model came from (or that Codex's own

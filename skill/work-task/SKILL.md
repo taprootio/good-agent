@@ -6,7 +6,7 @@ description: "Take a backlog task from active to ready for the owner's
   internally then externally, dispatch bounded slices at the least-cost
   runtime that meets the quality floor, implement, review the work
   internally until clean and externally until clean, close out and hand off
-  through open-pr, pushing only on the owner's go-ahead. Use when asked to work on, implement, tackle or finish a
+  without pushing. Use when asked to work on, implement, tackle or finish a
   task, story or backlog item."
 license: MIT
 metadata:
@@ -117,8 +117,8 @@ whom; no model or vendor names), regenerate the backlog and run its check
 
 Tell the owner: the branch name, what shipped, the review outcome, the
 decisions taken under step 3, and the commands to push and open the pull
-request (the repository's `attribution` policy applies to the message). Run
-the `open-pr` skill to prepare the pull request (it checks the release
-decision from step 9 still holds); it pushes and opens the pull request only on the owner's
-go-ahead for that pull request. Otherwise do not push, publish or merge;
-those are the owner's.
+request (the repository's `attribution` policy applies to the message). Do
+not push, publish, merge or open a pull request; those are the owner's.
+Opening the pull request is a separate, explicit ask: when the owner asks
+for one, the `open-pr` skill prepares and opens it (and checks that the
+release decision from step 9 still holds). This skill does not run it.

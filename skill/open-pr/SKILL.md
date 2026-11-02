@@ -5,8 +5,9 @@ description: "Open a pull request for the current branch: confirm the branch
   version bump (and ask the owner when shipped behaviour changed and the
   version did not move), check commit attribution and branch naming, write
   the PR body from the repository's conventions, and open it only once the
-  owner has approved the push. Use when asked to open, create, draft or
-  prepare a pull request, or when work-task reaches its hand-off."
+  owner has approved the push. Use when the owner asks to open, create,
+  draft or prepare a pull request. Not a step of work-task: it runs only
+  on that ask."
 license: MIT
 metadata:
   package: good-agent
