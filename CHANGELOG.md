@@ -6,6 +6,19 @@ shape and the config schema are the public API (docs/design.md section 8):
 a new rule ships at `warn` or `info` in a minor version and becomes `error`
 only in a major; a limit changes in a minor with the doc link and date here.
 
+## Unreleased
+
+### Fixed
+
+- `check` and `inspect` honour `.gitignore`. Inside a git work tree the
+  candidate instruction files come from `git ls-files --cached --others
+  --exclude-standard`, so files in ignored directories, such as per-session
+  worktrees under `.claude/worktrees/`, are no longer scanned and no
+  `ignore` entry is needed. Nested repositories are not entered. Outside a
+  work tree, without `git`, or when the root is itself an ignored directory,
+  the directory walk is unchanged. An instruction file named as a path to
+  `check` is checked even when ignored. (GA0008)
+
 ## 0.1.0 (2026-11-01)
 
 First release.

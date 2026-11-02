@@ -165,9 +165,17 @@ refusing to overwrite an edited skill copy).
 and a link starting with `/` resolves from the root, so run the guard from
 the repository root to validate the whole budget and root-relative links.
 
+Inside a git work tree it asks git which files to look at (tracked files and
+untracked files that are not ignored), so a gitignored directory such as
+`.claude/worktrees/` is not scanned and needs no `ignore` entry. Nested
+repositories are not entered; run the guard in them. Outside a work tree, or
+when `git` is not available, it walks the directory and skips `node_modules`
+and the other generated directories plus the `ignore` globs.
+
 With paths, `check` runs only when one of them is an instruction file, a
 file an instruction file links to, or the config file, so a pre-commit
 hook or a changed-paths verifier can pass it everything and let it decide.
+An instruction file named as a path is checked even when git ignores it.
 `npx --no-install` needs `good-agent` in the repo's devDependencies:
 
 ```sh

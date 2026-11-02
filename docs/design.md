@@ -304,6 +304,9 @@ the fact it rests on, and the decision on the candidate list from the brief.
 - `node_modules`, `.git`, `coverage`, `dist`, `build`, `public`, `.next`,
   `out` and anything in `ignore` are skipped both when discovering instruction
   files and when validating referenced paths.
+- Inside a git work tree, files that git ignores are not instruction files
+  to check (section 4.1). A repo that keeps per-session worktrees under an
+  ignored `.claude/worktrees/` needs no `ignore` entry for them.
 - A file reported by `dry/copied-canonical` is not also reported block by
   block.
 - `info` findings are hidden unless `--verbose` or `--json`.
@@ -321,6 +324,35 @@ file and any `extraFiles` globs. `AI_GUIDELINES.md` is recognised at the root
 as a known alternative name so detection works on repos like taproot-controls
 without config.
 
+Which of those files are checked depends on where the root is:
+
+- **Inside a git work tree** the candidates come from `git ls-files
+  --cached --others --exclude-standard -z`, run with `-C <root>` and split on
+  NUL. Tracked files and untracked files that no ignore rule covers
+  (`.gitignore` at any level, `.git/info/exclude`, the global excludes file)
+  are candidates; ignored files are not. A file that is tracked and also
+  matches an ignore rule is still tracked, so it is still checked, as git
+  itself treats it. Git lists a nested repository (a submodule, or a
+  directory with its own `.git` such as a per-session worktree that is not
+  ignored) as at most one directory entry, and discovery does not enter it:
+  it is another repository, so run `good-agent check` in it. The reason for
+  using git rather than reading `.gitignore` is that a hand-written matcher
+  drifts from git's rules (negation, nested files, the excludes file) and
+  git already answers exactly. Found in taproot, where the walk scanned
+  every instruction file copy in the gitignored `.claude/worktrees/` and
+  reported duplicates (GA0008).
+- **Elsewhere** (git is not installed or fails, the root is not in a work
+  tree, or the root is itself an ignored directory, where git would list
+  nothing) discovery walks the directory as 0.1.0 did and reads no
+  `.gitignore`. A package installed from npm or an archive export takes this
+  path.
+- In both modes the ignored directory names and `ignore` globs of section 3
+  apply on top.
+- Paths named on the command line (`check <path...>`, section 4.2) are
+  checked as given: an instruction file among them is added to the checked
+  set even when git ignores it. The built-in directory skips and `ignore`
+  globs still apply to it, and a path outside the root is not added.
+
 ### 4.2 Commands
 
 ```
@@ -330,7 +362,9 @@ good-agent check [options] [path...]
     (default or --config) (for verify-changed style scripts); otherwise
     exit 0 immediately with "nothing to check". Checks the directory it
     runs in (or --cwd); run from the repository root to validate the whole
-    Codex chain and root-relative links.
+    Codex chain and root-relative links. Inside a git work tree files git
+    ignores are skipped (4.1), except an ignored instruction file named as a
+    path, which is checked.
 
 good-agent inspect [--json]
     What each tool loads: the detected canonical file, every instruction
