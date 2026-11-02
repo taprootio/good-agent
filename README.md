@@ -26,7 +26,9 @@ exist. Keeping AI tool instructions DRY is just as important as keeping code DRY
 - **The loop.** Playbooks for writing a task and working a task with an
   internal review loop and an external review by the other AI tool, and
   `good-agent review`, which runs that external reviewer fresh and read-only
-  and returns its findings as JSON.
+  and returns its findings as JSON. The `open-pr` playbook opens the pull
+  request and asks whether it needs a version bump, because in a repository
+  where the bump is the release, a merge without one releases nothing.
 
 Zero runtime dependencies. Node 22 or later. MIT.
 
@@ -88,7 +90,8 @@ Then, if you want the skill in the repo for Claude Code, Codex and Copilot:
 npx good-agent init --skill
 ```
 
-This installs the skills into `.agents/skills/` and `.claude/skills/` as
+This installs the five skills (`good-agent`, `write-task`, `work-task`,
+`review-loop` and `open-pr`) into `.agents/skills/` and `.claude/skills/` as
 generated copies. Each copy carries a generated marker with a hash, and
 `init` exits 2 naming a copy you edited unless you pass `--force`.
 

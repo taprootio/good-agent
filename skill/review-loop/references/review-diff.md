@@ -31,7 +31,15 @@ failure path; nit = a definite small improvement with no failure path.
 Review in two passes:
 1. Contract and correctness: task completeness, architecture, data and
    control flow across seams, generated artifacts, stable tests, behaviour
-   compatibility.
+   compatibility, and release: when the diff changes shipped behaviour (the
+   files the package publishes, observable by a consumer) or adds entries
+   under the changelog's Unreleased heading, it must either carry the
+   version bump the repository's release flow needs (the manifest version
+   moved, the changelog entries filed under it with the date, any status
+   line naming the version updated) or say why it is not a release (the
+   task, the changelog or the pull request notes). Report a finding when
+   neither is true. A repository with no release flow, and a diff that
+   touches only tests, internal docs, the backlog or CI, are not findings.
 2. Adversarial failure modes: hostile input, authorization and tenant
    boundaries, concurrency, partial failure, retry and idempotency,
    ordering, resource limits, performance, and missing regression coverage.

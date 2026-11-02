@@ -1,0 +1,146 @@
+---
+name: open-pr
+description: "Open a pull request for the current branch: confirm the branch
+  is current and the gates have run, decide whether the change needs a
+  version bump (and ask the owner when shipped behaviour changed and the
+  version did not move), check commit attribution and branch naming, write
+  the PR body from the repository's conventions, and open it only once the
+  owner has approved the push. Use when asked to open, create, draft or
+  prepare a pull request, or when work-task reaches its hand-off."
+license: MIT
+metadata:
+  package: good-agent
+---
+
+# Open a pull request
+
+A merge can be a release. In a repository where the version bump on the
+base branch is the release, a pull request that changes shipped behaviour
+and leaves the version alone merges quietly and releases nothing, and
+nobody notices until someone asks where the fix is. This skill makes the
+question part of opening every pull request. It never pushes or opens
+anything without the owner's go-ahead.
+
+Read the values from the repository's canonical instruction file, as the
+other skills do: the `gates`, `branch-naming` and `attribution` seam points
+of its Loop contract table when it has one, otherwise whatever the file
+says in prose. Where the file is silent, use the defaults below and say so.
+
+## 1. Confirm the branch and the gates
+
+- `git status --short` is empty; unrelated changes in the tree are a
+  blocker to surface, never something to commit into this branch.
+- The branch is on top of the base branch: `git fetch` the base, then
+  `git merge-base --is-ancestor <base> HEAD` succeeds. When it does not,
+  bring the branch up to date the way the repository does (a merge or a
+  rebase, as its instruction file says), resolve conflicts, and rerun the
+  gates. Do not push to do this.
+- The gates the repository names have passed on the final tree: the
+  `gates` seam point, or the commands its canonical file lists. If any
+  file changed after they last ran, run them again. A gate that fails is
+  reported, not skipped.
+
+## 2. Decide whether this pull request needs a version bump
+
+Skip this step, and say in the PR body that the repository has no release
+flow, when nothing in the repository publishes: no release workflow, no
+version the instruction file or design documents tie to a merge. The
+signals are a release workflow under `.github/workflows/`, a `publish`
+script, a changelog with version headings, and a version field in a
+package manifest.
+
+- **Find the manifest.** The package manifest is `package.json` in a Node
+  package, and the equivalent where the repository's release flow reads
+  its version (`pyproject.toml`, `Cargo.toml` and so on). Take the one the
+  release workflow reads. A repository with no manifest has no version to
+  bump: do the changelog check below, report the absence in the PR body and
+  go on. A repository with several manifests (a monorepo or a workspace)
+  needs the manifest of each package the diff touches; when the
+  repository's rules do not say which versions move together, ask the
+  owner.
+- **Compare the version.** Read the version on the branch and on the base
+  (`git show <base>:package.json`). If they differ, the branch already
+  bumps it: check that it is the bump the rules in **Bump rules** below
+  give, that the changelog has a heading for the new version, and go on to
+  section 3.
+- **Look at what the diff touches.** `git diff --name-status <base>...HEAD`
+  against what the package publishes: the manifest's `files` list, its
+  `bin` and `exports` entries, and the directories they name (in
+  good-agent: `src/`, `scripts/`, `skill/`, `schema/`, `alias/`). Also look
+  for entries added under the changelog's `Unreleased` heading. Shipped
+  behaviour changed when the diff touches published files in a way a
+  consumer of the package can observe: code, a rule or its limit, the
+  shipped skills and their prompts, a schema, a CLI flag or output. Tests,
+  internal docs, the backlog and CI-only changes do not.
+- **Changelog check.** A change to shipped behaviour with no `Unreleased`
+  entry gets one, in the repository's changelog format.
+- **Stop and ask.** When shipped behaviour changed (or `Unreleased` gained
+  entries) and the version did not move, do not guess and do not bump on
+  your own. Ask the owner, once and plainly: "This changes shipped
+  behaviour and the version is still `<x>`. Is this pull request the
+  release?" Offer the bump the repository's rules give. Whether a merge is
+  a release is the owner's decision.
+  - **Yes.** Make the bump in the manifest, and in its lockfile if the
+    repository keeps one (`npm version <x> --no-git-tag-version` does both
+    for npm). Move the `Unreleased` entries under a new heading for the
+    version with today's date, leaving an empty `Unreleased` heading above
+    it if the changelog keeps one. Update any status line that names the
+    version (a README install line, a version line in the design document,
+    a pinned `npx <name>@<minor>` in the docs). Commit the bump as its own
+    commit, and rerun the gates.
+  - **No, deliberately not a release.** Record that in the PR body in a
+    sentence: the version stays `<x>` and the changes wait under
+    `Unreleased` for a later release.
+
+**Bump rules.** Use the repository's own, from its instruction file or the
+design document it names. For good-agent (`docs/design.md` section 8): a
+new rule or a changed limit is a minor, a rule rename or removal is a
+major, everything else is a patch, and a behaviour change while the version
+is still `0.x` is a minor. Where the repository states none, use semantic
+versioning and say that you did.
+
+## 3. Check the commits and the branch name
+
+- Every commit on the branch since the base
+  (`git log <base>..HEAD --format=%B`) follows the repository's
+  `attribution` policy. For a repository that forbids attribution, no
+  `Co-Authored-By:` trailers and no "Generated with" lines; for one that
+  requires a trailer, every commit carries it. Fix a violation by
+  rewording the commits on the unpushed branch, after telling the owner.
+- The branch name follows the `branch-naming` seam point
+  (Trellis: `<initials>/<id-lowercase>/<slug>`). A branch that does not
+  match is reported to the owner, who decides whether to rename it;
+  renaming is cheap before the push and awkward after.
+
+## 4. Write the PR body
+
+Use the repository's pull request template or the conventions in its
+instruction file; where there are none, these sections, in plain prose:
+
+- **What changed.** The behaviour a reader gets, not the file list. Name the
+  task or issue id.
+- **Gates.** The commands run and that they passed on the final tree.
+- **Review.** The rounds and dispositions the task's closeout records:
+  independence, the number of rounds internally and externally, what was
+  fixed, rejected or waived and by whom. No model or vendor names.
+- **What the merge does.** Say whether merging releases. For a release,
+  what the release workflow will do on the base branch: which version it
+  publishes, the dist-tag, the tag and release it creates. For a pull
+  request that is deliberately not a release, say so and where the changes
+  wait.
+- **For the owner.** Anything left undone, a decision taken on their
+  behalf, and what needs their hand after the merge.
+
+The repository's `attribution` policy applies to the body as it does to the
+commits.
+
+## 5. Open it, after approval
+
+Show the owner the branch, its head, the bump decision and the drafted
+title and body. Pushing and opening are the owner's go-ahead, in this
+conversation, for this pull request; an approval for an earlier push does
+not carry over. After the go-ahead, push the branch, open the pull request
+against the base branch with the host's tool (`gh pr create --base <base>
+--title ... --body-file ...` on GitHub), and report the link. If the
+repository's host or tool is unknown, give the owner the drafted title and
+body and stop.

@@ -111,5 +111,6 @@ whom; no model or vendor names), regenerate the backlog and run its check
 
 Tell the owner: the branch name, what shipped, the review outcome, the
 decisions taken under step 3, and the commands to push and open the pull
-request (the repository's `attribution` policy applies to the message). Do
-not push, publish or merge; those are the owner's.
+request (the repository's `attribution` policy applies to the message). Run
+the `open-pr` skill to prepare the pull request, including whether it needs
+a version bump. Do not push, publish or merge; those are the owner's.

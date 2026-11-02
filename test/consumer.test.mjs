@@ -20,7 +20,7 @@ test("consumer fixture: installed skills keep their marker and every relative li
     for (const base of [".agents/skills", ".claude/skills"]) {
       const baseDir = join(tree.root, ...base.split("/"));
       const names = readdirSync(baseDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-      assert.deepEqual(names.sort(), ["good-agent", "review-loop", "work-task", "write-task"]);
+      assert.deepEqual(names.sort(), ["good-agent", "open-pr", "review-loop", "work-task", "write-task"]);
       for (const name of names) {
         const skillDir = join(baseDir, name);
         const file = join(skillDir, "SKILL.md");
