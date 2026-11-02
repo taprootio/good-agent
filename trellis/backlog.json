@@ -6,9 +6,9 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0008",
+  "nextId": "GA0009",
   "counts": {
-    "active": 2,
+    "active": 3,
     "completed": 5,
     "removed": 0
   },
@@ -42,6 +42,21 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Once good-agent is released, delete Trellis's own work-task playbook and MCP prompt and point its code-review and pr-draft playbooks at good-agent's review-loop skill, so the loop has one home."
+    },
+    {
+      "id": "GA0008",
+      "title": "Make `good-agent check` honour .gitignore",
+      "status": "active",
+      "milestone": "Beta",
+      "priority": "High",
+      "effort": 3,
+      "depends_on": [
+        "GA0001",
+        "GA0005"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Inside a git work tree, enumerate candidate instruction files from git so ignored files, such as per-session worktrees under .claude/worktrees, are not checked; keep the directory walk as the fallback and keep explicit command-line paths checked as given."
     },
     {
       "id": "GA0001",
