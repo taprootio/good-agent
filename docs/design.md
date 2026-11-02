@@ -878,7 +878,8 @@ repo can link to.
    bounded slices to the least-cost runtime that meets the quality floor
    (Taproot's "select a runtime deliberately" and "review cost ceiling"
    sections, generalized); implement; review the work internally until
-   clean, then externally until clean; close out; hand off without pushing.
+   clean, then externally until clean; close out; hand off through `open-pr`,
+   which pushes only on the owner's go-ahead for that pull request.
 3. **`review-loop`**: a skill of its own, invoked by the other two and on
    its own when someone asks for a review: fresh
    context, read-only, factual prompt, severity semantics, confirm-then-fix,

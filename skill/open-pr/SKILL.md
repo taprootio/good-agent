@@ -35,10 +35,12 @@ says in prose. Where the file is silent, use the defaults below and say so.
   bring the branch up to date the way the repository does (a merge or a
   rebase, as its instruction file says), resolve conflicts, and rerun the
   gates. Do not push to do this. Conflict resolution, a bump and a changelog
-  edit all change the reviewed tree: when one of them touches more than
-  generated files or the changelog, run the repository's review on the new
-  diff again (the `review-loop` skill, at least a confirmation round) and
-  update the task's review record before the pull request is opened.
+  edit all change the reviewed tree. After any of them, run the repository's
+  review loop on the updated diff again (the `review-loop` skill: internally
+  until clean, then externally until clean, as its review policy says) and
+  update the task's review record before the pull request is opened. The
+  delta is small, so the round is cheap; skipping it ships code that no
+  reviewer read.
 - The gates the repository names have passed on the final tree: the
   `gates` seam point, or the commands its canonical file lists. If any
   file changed after they last ran, run them again. A gate that fails is
@@ -64,9 +66,11 @@ package manifest.
   owner.
 - **Compare the version.** Read the version on the branch and on the base
   (`git show <base>:package.json`). If they differ, the branch already
-  bumps it: check that it is the bump the rules in **Bump rules** below
-  give, that the changelog has a heading for the new version, and go on to
-  section 3.
+  bumps it. Check the whole release state: the new version is the bump the
+  rules in **Bump rules** below give; the changelog has a dated heading for
+  it that holds the entries for this release, with none of them left under
+  `Unreleased`; and every status line that names the version is updated.
+  Fix what is missing as in the **Yes** case below, then go on to section 3.
 - **Look at what the diff touches.** `git diff --name-status <base>...HEAD`
   against what the package publishes: the manifest's `files` list, its
   `bin` and `exports` entries, and the directories they name (in
