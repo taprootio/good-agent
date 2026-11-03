@@ -3,7 +3,7 @@
 Keep your AI tool instruction files DRY and inside what the tools
 actually load.
 
-> Status: 0.2.0 is the current release. Run `npx good-agent check` in your repo. Design notes live in [docs/design.md](docs/design.md).
+> Status: 0.3.0 is the current release. Run `npx good-agent check` in your repo. Design notes live in [docs/design.md](docs/design.md).
 
 Good tools make hard work easy. Bad tools make easy work hard.
 
@@ -47,7 +47,7 @@ out which one is canonical (the one the others point at), and reports. This is
 the output on a repository whose `AGENTS.md` has grown to 34,348 bytes:
 
 ```
-good-agent 0.2.0 · 2 instruction files · canonical AGENTS.md
+good-agent 0.3.0 · 2 instruction files · canonical AGENTS.md
 
 ✖ AGENTS.md:565  codex/size-budget
   Codex loads at most 32,768 bytes of AGENTS.md content along the chain
@@ -100,7 +100,7 @@ And in CI:
 ```yaml
 - uses: actions/setup-node@v4
   with: { node-version: 22 }
-- run: npx good-agent@0.2 check
+- run: npx good-agent@0.3 check
 ```
 
 ## The layout it enforces

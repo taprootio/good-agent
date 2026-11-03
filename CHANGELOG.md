@@ -6,7 +6,7 @@ shape and the config schema are the public API (docs/design.md section 8):
 a new rule ships at `warn` or `info` in a minor version and becomes `error`
 only in a major; a limit changes in a minor with the doc link and date here.
 
-## 0.2.0 (2026-11-02)
+## 0.3.0 (2026-11-02)
 
 ### Added
 
@@ -29,6 +29,11 @@ only in a major; a limit changes in a minor with the doc link and date here.
   needs nor says why it is not a release. `work-task` settles the release
   question before its diff review and still hands off without pushing;
   `open-pr` runs only when the owner asks for a pull request. (GA0011)
+
+## 0.2.0 (2026-11-02)
+
+### Changed
+
 - `good-agent review` explains a reviewer failure. When the reviewer exits
   non-zero it prints the lines of its output that report the error, the model
   and effort passed and where the model came from (or that Codex's own
