@@ -6,10 +6,10 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0011",
+  "nextId": "GA0012",
   "counts": {
     "active": 2,
-    "completed": 8,
+    "completed": 9,
     "removed": 0
   },
   "tasks": [
@@ -167,6 +167,21 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Bump `package.json` to 0.2.0 so the release workflow publishes the gitignore-aware guard and the reviewer failure output that GA0008 and GA0009 merged.",
+      "completed_on": "2026-11-02"
+    },
+    {
+      "id": "GA0011",
+      "title": "An open-pr skill that checks whether a version bump is required",
+      "status": "completed",
+      "milestone": "Beta",
+      "priority": "High",
+      "effort": 3,
+      "depends_on": [
+        "GA0005"
+      ],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "Ship a fifth skill, open-pr, that walks an AI tool through opening a pull request including the version-bump decision, and make the diff review prompt flag a change to shipped behaviour that neither bumps the version nor says it is not a release.",
       "completed_on": "2026-11-02"
     }
   ]

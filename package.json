@@ -1,6 +1,6 @@
 {
   "name": "good-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Keep AI tool instruction files (AGENTS.md, CLAUDE.md, Copilot instructions) DRY and inside what each tool actually loads.",
   "keywords": [

@@ -91,6 +91,12 @@ repository's `gates` seam point) for the final reviewed candidate.
 
 ## 9. Review the work
 
+First settle the release question, so the review can see the answer: follow
+section 2 of the `open-pr` skill (does this change need a version bump?),
+ask the owner when it says to, make the bump or record in the task's Notes
+that the change is deliberately not a release, and commit. A repository
+with no release flow skips this.
+
 Run the `review-loop` skill with the diff prompt
 (`references/review-diff.md` in that skill) against the branch's starting commit, naming
 the task file: internally in a fresh context until `[]` (cap five passes,
@@ -112,4 +118,7 @@ whom; no model or vendor names), regenerate the backlog and run its check
 Tell the owner: the branch name, what shipped, the review outcome, the
 decisions taken under step 3, and the commands to push and open the pull
 request (the repository's `attribution` policy applies to the message). Do
-not push, publish or merge; those are the owner's.
+not push, publish, merge or open a pull request; those are the owner's.
+Opening the pull request is a separate, explicit ask: when the owner asks
+for one, the `open-pr` skill prepares and opens it (and checks that the
+release decision from step 9 still holds). This skill does not run it.

@@ -1,7 +1,7 @@
 // @ts-check
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateSkillFile, validateSkillText } from "../src/skill-validate.mjs";
 import { REPO, FIXTURES } from "./helpers.mjs";
@@ -37,4 +37,23 @@ test("validator: an unquoted name or description that YAML would misread is flag
   }
   assert.deepEqual(validateSkillText("---\nname: x # directory name\ndescription: d # what it does\n---\n", "x"), []);
   assert.ok(validateSkillText("---\nname: a: b\ndescription: d\n---\n", "a").some((p) => /name is an unquoted/.test(p)));
+});
+
+test("open-pr names the release decision steps and the diff prompt carries the matching check", () => {
+  const flat = (/** @type {string} */ t) => t.replace(/\s+/g, " ");
+  const skill = flat(readFileSync(join(REPO, "skill", "open-pr", "SKILL.md"), "utf8"));
+  for (const [heading, re] of [
+    ["branch and gates", /## 1\. Confirm the branch and the gates/],
+    ["version bump decision", /## 2\. Decide whether this pull request needs a version bump/],
+    ["commits and branch name", /## 3\. Check the commits and the branch name/],
+    ["PR body", /## 4\. Write the PR body/],
+    ["open after approval", /## 5\. Open it, after approval/],
+  ]) assert.match(skill, re, heading);
+  for (const phrase of ["Is this pull request the release?", "Unreleased", "no release flow", "several manifests", "deliberately not a release"]) assert.ok(skill.includes(phrase), `open-pr lacks "${phrase}"`);
+  const diff = readFileSync(join(REPO, "skill", "review-loop", "references", "review-diff.md"), "utf8");
+  const body = flat(diff.slice(0, diff.indexOf("<!-- ENDING:")));
+  assert.match(body, /changes shipped behaviour/);
+  assert.match(body, /version bump the repository's release flow needs/);
+  assert.match(body, /say why it is not a release/);
+  assert.match(body, /no release flow/);
 });

@@ -415,7 +415,7 @@ repository root. The CLI help and the README say so.
 ### 4.4 Human output
 
 ```
-good-agent 0.2.0 · 6 instruction files · canonical AGENTS.md
+good-agent 0.3.0 · 6 instruction files · canonical AGENTS.md
 
 ✖ AGENTS.md  codex/size-budget
   Codex loads at most 32,768 bytes of AGENTS.md content along the chain
@@ -445,7 +445,7 @@ with the numbers, the fix, the doc. The file line is first so editors and
 
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "root": "/Users/jereme/src/taproot",
   "canonical": "AGENTS.md",
   "files": [
@@ -609,7 +609,7 @@ Body, in order:
 
 Shipped in the package under `skill/<name>/SKILL.md` and listed in `files`.
 `good-agent init --skill` copies every shipped skill (`good-agent`,
-`write-task`, `work-task`, `review-loop`) to `.agents/skills/<name>/SKILL.md`
+`write-task`, `work-task`, `review-loop`, `open-pr`) to `.agents/skills/<name>/SKILL.md`
 (Codex, Copilot) and `.claude/skills/<name>/SKILL.md` (Claude Code, Copilot).
 Each copy keeps the `---` front matter as its first line, as the Agent Skills
 format requires, and carries an HTML comment on the first body line marking
@@ -661,8 +661,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: npx good-agent@0.2 check --json > good-agent.json || true
-      - run: npx good-agent@0.2 check
+      - run: npx good-agent@0.3 check --json > good-agent.json || true
+      - run: npx good-agent@0.3 check
 ```
 
 The first run keeps the JSON as a build artefact or for a PR comment step; the
@@ -733,6 +733,13 @@ trees.
   `package.json` on `main` is the release, npm trusted publishing with OIDC,
   tag and GitHub Release created in the same job, prereleases to the `next`
   dist-tag.
+- Because the bump is the release, a merge that changes shipped behaviour
+  without one releases nothing. The `open-pr` skill (section 12) asks, before
+  a pull request is opened, whether it is the release and which bump these
+  rules give: a new rule or a limit change is a minor, a rename or removal a
+  major, anything else a patch, and a behaviour change while the version is
+  `0.x` is a minor. The diff review prompt flags a change that neither bumps
+  the version nor says why it is not a release.
 
 ## 9. Package layout, language, dependencies, license
 
@@ -744,8 +751,8 @@ trees.
   is the primary page and the only one human output prints), `src/report.mjs`
   (human and JSON), `src/review.mjs` (the runner, section 12) with
   `src/review-store.mjs` (reviews directory, ids, round reservation, lock and
-  tree digest), `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task` and
-  `review-loop`, with the four review prompts at
+  tree digest), `skill/<name>/SKILL.md` for `good-agent`, `write-task`, `work-task`,
+  `review-loop` and `open-pr`, with the four review prompts at
   `skill/review-loop/references/review-{diff,story,plan,design}.md` so
   they install with the skill,
   `schema/config.json`, `schema/findings.json`, `alias/package.json`,
@@ -793,7 +800,10 @@ done.
 **v0.2**: `dry/duplicate-block`, `copilot/pointer-thin`, `refs/missing-path`,
 `refs/missing-script`, `skills/copies-in-sync`, `init --config/--hook/--ci`,
 `GEMINI.md` and `.cursor/rules` as instruction files once their docs are
-checked the same way, `--by copilot` for the review runner.
+checked the same way, and `--by copilot` for the review runner.
+
+**Shipped after 0.1.0**: the `open-pr` skill and the release check in the
+diff review prompt (GA0011, 0.3.0).
 
 **Later or never**: contradiction detection (skill only), autofix (`--fix`
 for `claude/import-canonical` is tempting and safe; everything else edits
@@ -853,7 +863,7 @@ copies from taproot and taproot-controls.
 
 ### What good-agent ships
 
-Two playbooks and a runner. The playbooks are shipped as skills (spec-only
+Four playbooks and a runner. The playbooks are shipped as skills (spec-only
 front matter) so every tool can discover them, and are also plain Markdown a
 repo can link to.
 
@@ -871,6 +881,7 @@ repo can link to.
    (Taproot's "select a runtime deliberately" and "review cost ceiling"
    sections, generalized); implement; review the work internally until
    clean, then externally until clean; close out; hand off without pushing.
+   Opening the pull request is a separate ask that runs `open-pr`.
 3. **`review-loop`**: a skill of its own, invoked by the other two and on
    its own when someone asks for a review: fresh
    context, read-only, factual prompt, severity semantics, confirm-then-fix,
@@ -889,7 +900,36 @@ repo can link to.
    array as the final block even when empty; the runner ending asks for
    the schema object `{"findings":[...]}` that `--output-schema` and
    `--json-schema` enforce, which the runner unwraps to the bare array.
-4. **`good-agent review`**: the runner. It spawns a fresh read-only reviewer
+4. **`open-pr`**: opens the pull request for the current branch, and asks
+   the question that a merge is sometimes a release. Added after PR #5
+   (GA0008, GA0009) merged at 0.1.0 and released nothing, because in this
+   flow (section 8) the version bump on `main` is the release and no step of
+   the loop asked whether the pull request needed one. In order: confirm the
+   branch is on top of the base and the gates the repository names have run;
+   decide whether a bump is needed by finding the package manifest, comparing
+   its version on the branch with the base, and looking at what the diff
+   touches (the files the package publishes, and entries added under the
+   changelog's `Unreleased` heading); when shipped behaviour changed and the
+   version did not move, stop and ask the owner whether this pull request is
+   the release, then apply the repository's bump rules (section 8 here),
+   move the `Unreleased` entries under the new version with the date and
+   update any status line that names it, or record in the pull request body
+   that it is deliberately not a release; check the commits for forbidden
+   attribution and the branch name against `branch-naming`; write the body
+   from the repository's conventions and open the pull request only once the
+   owner has approved the push. A repository with no release flow skips the
+   bump step and says so. The skill reads its values (`gates`,
+   `branch-naming`, `attribution`) from the repository's canonical file like
+   the others, so it is not specific to this package. The diff review prompt
+   carries the matching check: a diff that changes shipped behaviour or adds
+   changelog entries must carry the bump its release flow needs or say why it
+   is not a release, and is a finding when neither is true. `work-task`
+   settles the release question before its diff review (so the review sees
+   the answer), but its hand-off does not run this skill: opening a pull
+   request is the owner's explicit ask (owner decision, 2026-11-02), so
+   `work-task` ends by telling the owner the branch and the commands, and
+   this skill runs when they ask for the pull request.
+5. **`good-agent review`**: the runner. It spawns a fresh read-only reviewer
    as a child process and returns the findings:
 
    ```

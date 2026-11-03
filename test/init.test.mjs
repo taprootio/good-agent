@@ -311,7 +311,7 @@ test("npm pack lists the shipped skill", () => {
   const pack = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0];
   /** @type {string[]} */
   const paths = pack.files.map((/** @type {{ path: string }} */ f) => f.path);
-  for (const want of ["skill/good-agent/SKILL.md", "skill/review-loop/SKILL.md", "skill/review-loop/references/review-diff.md", "skill/write-task/SKILL.md", "skill/work-task/SKILL.md"]) {
+  for (const want of ["skill/good-agent/SKILL.md", "skill/review-loop/SKILL.md", "skill/review-loop/references/review-diff.md", "skill/open-pr/SKILL.md", "skill/write-task/SKILL.md", "skill/work-task/SKILL.md"]) {
     assert.ok(paths.includes(want), `${want} missing from the package`);
   }
 });
