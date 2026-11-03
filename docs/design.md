@@ -800,8 +800,10 @@ done.
 **v0.2**: `dry/duplicate-block`, `copilot/pointer-thin`, `refs/missing-path`,
 `refs/missing-script`, `skills/copies-in-sync`, `init --config/--hook/--ci`,
 `GEMINI.md` and `.cursor/rules` as instruction files once their docs are
-checked the same way, `--by copilot` for the review runner, and the
-`open-pr` skill (GA0011).
+checked the same way, and `--by copilot` for the review runner.
+
+**Shipped after 0.1.0**: the `open-pr` skill and the release check in the
+diff review prompt (GA0011, 0.3.0).
 
 **Later or never**: contradiction detection (skill only), autofix (`--fix`
 for `claude/import-canonical` is tempting and safe; everything else edits
