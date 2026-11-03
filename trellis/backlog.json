@@ -6,10 +6,10 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0012",
+  "nextId": "GA0013",
   "counts": {
     "active": 1,
-    "completed": 10,
+    "completed": 11,
     "removed": 0
   },
   "tasks": [
@@ -184,6 +184,19 @@
       "collaborators": [],
       "summary": "Ship a fifth skill, open-pr, that walks an AI tool through opening a pull request including the version-bump decision, and make the diff review prompt flag a change to shipped behaviour that neither bumps the version nor says it is not a release.",
       "completed_on": "2026-11-02"
+    },
+    {
+      "id": "GA0012",
+      "title": "Untrack the committed node_modules symlink and ignore the path, not only the directory",
+      "status": "completed",
+      "milestone": "Beta",
+      "priority": "Low",
+      "effort": 1,
+      "depends_on": [],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "PR #5 committed `node_modules` as a symlink to an absolute path on the author's machine because `.gitignore` ignores only the directory form; remove it from the index and make the pattern match the path.",
+      "completed_on": "2026-11-03"
     }
   ]
 }

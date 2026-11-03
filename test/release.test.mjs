@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO } from "./helpers.mjs";
@@ -213,4 +213,22 @@ test("alias prerelease tag: the alias job derives next or latest from its own ve
   const alias = yml.slice(yml.indexOf("  alias:"));
   assert.match(alias, /case "\$version" in \*-\*\) tag=next ;; \*\) tag=latest ;; esac/);
   assert.match(alias, /npm publish --provenance --access public --tag "\$tag"/);
+});
+
+test("node_modules is not tracked and the ignore pattern covers a symlink (GA0012)", () => {
+  const tracked = spawnSync("git", ["-C", REPO, "ls-files", "--", "node_modules"], { encoding: "utf8" });
+  assert.equal(tracked.status, 0, tracked.stderr);
+  assert.equal(tracked.stdout.trim(), "", "node_modules is tracked; PR #5 committed it as a symlink");
+  // `node_modules/` matches directories only, so a symlink slipped past it. Apply the
+  // real ignore file in a scratch repository to a symlink and check git ignores it.
+  const dir = mkdtempSync(join(tmpdir(), "good-agent-ignore-"));
+  try {
+    assert.equal(spawnSync("git", ["-C", dir, "init", "-q"], { encoding: "utf8" }).status, 0);
+    cpSync(join(REPO, ".gitignore"), join(dir, ".gitignore"));
+    symlinkSync(join(dir, "elsewhere"), join(dir, "node_modules"));
+    const ignored = spawnSync("git", ["-C", dir, "check-ignore", "-q", "node_modules"], { encoding: "utf8" });
+    assert.equal(ignored.status, 0, "a node_modules symlink is not ignored by .gitignore");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

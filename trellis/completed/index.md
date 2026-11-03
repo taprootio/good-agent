@@ -6,6 +6,7 @@ a task and regenerate (`npx @taprootio/trellis generate`).
 <!-- BEGIN GENERATED:COMPLETED -->
 | ID | Title | Summary | Completed |
 | --- | --- | --- | --- |
+| [GA0012](tasks/GA0012.md) | Untrack the committed node_modules symlink and ignore the path, not only the directory | PR #5 committed `node_modules` as a symlink to an absolute path on the author's machine because `.gitignore` ignores only the directory form; remove it from the index and make the pattern match the path. | 2026-11-03 |
 | [GA0006](tasks/GA0006.md) | Adopt good-agent in taproot and taproot-controls and remove the duplicates | Point taproot and taproot-controls at the published skills and review runner, delete the process text and exchange scripts they duplicate, and fix the errors the guard reports in each repo. | 2026-11-02 |
 | [GA0008](tasks/GA0008.md) | Make `good-agent check` honour .gitignore | Inside a git work tree, enumerate candidate instruction files from git so ignored files, such as per-session worktrees under .claude/worktrees, are not checked; keep the directory walk as the fallback and keep explicit command-line paths checked as given. | 2026-11-02 |
 | [GA0009](tasks/GA0009.md) | Show why a reviewer failed in `good-agent review` | When a reviewer exits non-zero, print the cause from its output, the round's log path, and the model, effort and where the model came from, with a hint for a refused model, instead of only "codex exited 1". | 2026-11-02 |
