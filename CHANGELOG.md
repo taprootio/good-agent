@@ -6,6 +6,30 @@ shape and the config schema are the public API (docs/design.md section 8):
 a new rule ships at `warn` or `info` in a minor version and becomes `error`
 only in a major; a limit changes in a minor with the doc link and date here.
 
+## 0.3.0 (2026-11-02)
+
+### Added
+
+- The `open-pr` skill, a fifth shipped skill that `good-agent init --skill`
+  installs with the others. It walks an AI tool through opening a pull
+  request: confirm the branch is current and the gates have run, decide
+  whether the change needs a version bump (compare the manifest version with
+  the base, look at what the diff touches and at the changelog's Unreleased
+  entries, and ask the owner whether the pull request is the release when
+  shipped behaviour changed and the version did not move), check commit
+  attribution and the branch name, write the body from the repository's
+  conventions, and open it only once the owner approves the push. A
+  repository with no release flow skips the bump step and says so. (GA0011)
+
+### Changed
+
+- The diff review prompt (`skill/review-loop/references/review-diff.md`)
+  reports a finding when a diff changes shipped behaviour or adds changelog
+  entries and neither carries the version bump the repository's release flow
+  needs nor says why it is not a release. `work-task` settles the release
+  question before its diff review and still hands off without pushing;
+  `open-pr` runs only when the owner asks for a pull request. (GA0011)
+
 ## 0.2.0 (2026-11-02)
 
 ### Changed
