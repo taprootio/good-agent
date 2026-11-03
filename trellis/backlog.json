@@ -6,9 +6,9 @@
     "v1",
     "Future"
   ],
-  "nextId": "GA0012",
+  "nextId": "GA0013",
   "counts": {
-    "active": 1,
+    "active": 2,
     "completed": 10,
     "removed": 0
   },
@@ -26,6 +26,18 @@
       "owner": "je",
       "collaborators": [],
       "summary": "Once good-agent is released, delete Trellis's own work-task playbook and MCP prompt and point its code-review and pr-draft playbooks at good-agent's review-loop skill, so the loop has one home."
+    },
+    {
+      "id": "GA0012",
+      "title": "Untrack the committed node_modules symlink and ignore the path, not only the directory",
+      "status": "active",
+      "milestone": "Beta",
+      "priority": "Low",
+      "effort": 1,
+      "depends_on": [],
+      "owner": "je",
+      "collaborators": [],
+      "summary": "PR #5 committed `node_modules` as a symlink to an absolute path on the author's machine because `.gitignore` ignores only the directory form; remove it from the index and make the pattern match the path."
     },
     {
       "id": "GA0001",
